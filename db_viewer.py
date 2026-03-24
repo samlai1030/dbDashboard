@@ -1,0 +1,370 @@
+"""
+db_viewer.py — Generate an interactive HTML viewer for data.db.
+
+Features:
+    • Table list sidebar with row/column counts
+    • Click a table to view its data in a searchable, sortable grid
+    • Column filter & search
+    • SQL query box for custom queries
+    • Schema viewer
+
+Usage:
+    SlotID 1 = "DTC_R"                      # generate viewer
+    python db_viewer.py -o my_viewer.html    # custom output name
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sqlite3
+from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
+
+from app_config import cfg
+
+DB_PATH = cfg.db_file
+
+
+def _get_tables(conn: sqlite3.Connection) -> list[dict]:
+    tables = []
+    cur = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+    )
+    for (name,) in cur.fetchall():
+        rows = conn.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0]
+        cols_info = conn.execute(f'PRAGMA table_info("{name}")').fetchall()
+        tables.append(
+            {
+                "name": name,
+                "rows": rows,
+                "columns": [{"name": c[1], "type": c[2]} for c in cols_info],
+            }
+        )
+    return tables
+
+
+def _get_table_data(
+    conn: sqlite3.Connection, table: str, limit: int = 500
+) -> list[dict]:
+    df = pd.read_sql_query(f'SELECT * FROM "{table}" LIMIT {limit}', conn)
+    df = df.fillna("")
+    return df.to_dict(orient="records")
+
+
+def build_html(db_path: Path) -> str:
+    conn = sqlite3.connect(str(db_path))
+    tables = _get_tables(conn)
+
+    # Pre-load data for all tables (cap at 500 rows each for performance)
+    all_data = {}
+    for t in tables:
+        all_data[t["name"]] = _get_table_data(conn, t["name"], limit=500)
+    conn.close()
+
+    tables_json = json.dumps(tables)
+    data_json = json.dumps(all_data)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    db_name = db_path.name
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DB Viewer — {db_name}</title>
+<style>
+:root {{
+    --bg: #f0f2f5; --sidebar-bg: #1e2a3a; --sidebar-text: #cbd5e1;
+    --card-bg: #ffffff; --accent: #3b82f6; --accent-hover: #2563eb;
+    --text: #1e293b; --text-muted: #64748b; --border: #e2e8f0;
+    --success: #22c55e; --warning: #f59e0b;
+}}
+* {{ margin: 0; padding: 0; box-sizing: border-box; }}
+body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+       display: flex; height: 100vh; background: var(--bg); color: var(--text); }}
+
+/* Sidebar */
+.sidebar {{ width: 280px; min-width: 280px; background: var(--sidebar-bg); color: var(--sidebar-text);
+            display: flex; flex-direction: column; overflow: hidden; }}
+.sidebar-header {{ padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); }}
+.sidebar-header h2 {{ color: white; font-size: 1.1em; }}
+.sidebar-header .db-name {{ font-size: 0.8em; color: var(--sidebar-text); margin-top: 4px; }}
+.table-list {{ flex: 1; overflow-y: auto; padding: 8px; }}
+.table-item {{ padding: 10px 12px; border-radius: 8px; cursor: pointer; margin-bottom: 4px;
+               transition: background 0.15s; }}
+.table-item:hover {{ background: rgba(255,255,255,0.08); }}
+.table-item.active {{ background: var(--accent); color: white; }}
+.table-item .tname {{ font-weight: 600; font-size: 0.9em; word-break: break-all; }}
+.table-item .tmeta {{ font-size: 0.75em; margin-top: 3px; opacity: 0.7; }}
+
+/* Main */
+.main {{ flex: 1; display: flex; flex-direction: column; overflow: hidden; }}
+
+/* Toolbar */
+.toolbar {{ padding: 12px 20px; background: var(--card-bg); border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }}
+.toolbar input[type=text] {{ padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
+                             font-size: 0.9em; outline: none; }}
+.toolbar input[type=text]:focus {{ border-color: var(--accent); box-shadow: 0 0 0 2px rgba(59,130,246,0.2); }}
+#searchBox {{ width: 250px; }}
+#sqlBox {{ flex: 1; min-width: 300px; font-family: 'SF Mono', 'Menlo', monospace; font-size: 0.85em; }}
+.btn {{ padding: 8px 16px; border: none; border-radius: 6px; font-size: 0.85em;
+        cursor: pointer; font-weight: 600; transition: background 0.15s; }}
+.btn-primary {{ background: var(--accent); color: white; }}
+.btn-primary:hover {{ background: var(--accent-hover); }}
+.btn-outline {{ background: transparent; border: 1px solid var(--border); color: var(--text); }}
+.btn-outline:hover {{ background: var(--bg); }}
+.tab-group {{ display: flex; gap: 4px; }}
+.tab {{ padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); background: transparent;
+        cursor: pointer; font-size: 0.85em; color: var(--text-muted); }}
+.tab.active {{ background: var(--accent); color: white; border-color: var(--accent); }}
+
+/* Info bar */
+.info-bar {{ padding: 8px 20px; background: var(--bg); font-size: 0.8em; color: var(--text-muted);
+             border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; }}
+
+/* Table view */
+.table-wrap {{ flex: 1; overflow: auto; padding: 0; }}
+table {{ width: 100%; border-collapse: collapse; font-size: 0.82em; }}
+thead {{ position: sticky; top: 0; z-index: 10; }}
+th {{ background: #f8fafc; padding: 8px 10px; text-align: left; border-bottom: 2px solid var(--border);
+      font-weight: 600; color: var(--text-muted); font-size: 0.85em; white-space: nowrap; cursor: pointer;
+      user-select: none; }}
+th:hover {{ background: #eef2f7; }}
+th .sort-arrow {{ margin-left: 4px; font-size: 0.7em; }}
+td {{ padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap;
+      max-width: 250px; overflow: hidden; text-overflow: ellipsis; }}
+tr:hover {{ background: #f8fafc; }}
+tr.highlight td {{ background: #fef3c7; }}
+
+/* Schema view */
+.schema-wrap {{ flex: 1; overflow: auto; padding: 20px; }}
+.schema-table {{ width: 100%; max-width: 700px; }}
+.schema-table th {{ background: var(--sidebar-bg); color: white; }}
+.schema-table td {{ font-family: 'SF Mono', 'Menlo', monospace; font-size: 0.85em; }}
+
+/* SQL results */
+#sqlResults {{ padding: 10px 20px; font-size: 0.8em; color: var(--text-muted); }}
+
+.generated {{ padding: 10px 20px; font-size: 0.75em; color: var(--text-muted); text-align: right;
+              border-top: 1px solid var(--border); }}
+
+.img-link {{ color: var(--accent); text-decoration: none; font-size: 1.1em; }}
+.img-link:hover {{ color: var(--accent-hover); }}
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+    <div class="sidebar-header">
+        <h2>🗃 DB Viewer</h2>
+        <div class="db-name">{db_name}</div>
+    </div>
+    <div class="table-list" id="tableList"></div>
+</div>
+
+<div class="main">
+    <div class="toolbar">
+        <div class="tab-group">
+            <button class="tab active" onclick="setView('data')">Data</button>
+            <button class="tab" onclick="setView('schema')">Schema</button>
+            <button class="tab" onclick="setView('sql')">SQL</button>
+        </div>
+        <input type="text" id="searchBox" placeholder="Search rows…" oninput="filterRows()">
+        <input type="text" id="sqlBox" placeholder="SELECT * FROM sfr_data WHERE TestResult='FAIL' LIMIT 50" style="display:none">
+        <button class="btn btn-primary" id="sqlRunBtn" onclick="runSQL()" style="display:none">Run</button>
+    </div>
+    <div class="info-bar" id="infoBar">Select a table from the sidebar</div>
+
+    <div class="table-wrap" id="dataView"></div>
+    <div class="schema-wrap" id="schemaView" style="display:none"></div>
+    <div id="sqlResults" style="display:none"></div>
+
+    <div class="generated">Generated: {now}</div>
+</div>
+
+<script>
+const TABLES = {tables_json};
+const DATA = {data_json};
+
+let currentTable = null;
+let currentView = 'data';
+let sortCol = null;
+let sortAsc = true;
+
+// Sidebar
+function renderSidebar() {{
+    const list = document.getElementById('tableList');
+    list.innerHTML = TABLES.map(t => `
+        <div class="table-item ${{currentTable === t.name ? 'active' : ''}}"
+             onclick="selectTable('${{t.name.replace(/'/g, "\\\\'")}}')">
+            <div class="tname">${{t.name}}</div>
+            <div class="tmeta">${{t.rows.toLocaleString()}} rows · ${{t.columns.length}} cols</div>
+        </div>
+    `).join('');
+}}
+
+function selectTable(name) {{
+    currentTable = name;
+    sortCol = null;
+    sortAsc = true;
+    document.getElementById('searchBox').value = '';
+    renderSidebar();
+    renderView();
+}}
+
+// Views
+function setView(view) {{
+    currentView = view;
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab')[['data','schema','sql'].indexOf(view)].classList.add('active');
+
+    document.getElementById('dataView').style.display = view === 'data' ? '' : 'none';
+    document.getElementById('schemaView').style.display = view === 'schema' ? '' : 'none';
+    document.getElementById('sqlResults').style.display = view === 'sql' ? '' : 'none';
+    document.getElementById('searchBox').style.display = view === 'data' ? '' : 'none';
+    document.getElementById('sqlBox').style.display = view === 'sql' ? '' : 'none';
+    document.getElementById('sqlRunBtn').style.display = view === 'sql' ? '' : 'none';
+
+    renderView();
+}}
+
+function renderView() {{
+    if (currentView === 'data') renderData();
+    else if (currentView === 'schema') renderSchema();
+}}
+
+// Data view
+function renderData() {{
+    if (!currentTable) {{
+        document.getElementById('dataView').innerHTML = '<p style="padding:40px;color:#94a3b8;">Select a table from the sidebar.</p>';
+        document.getElementById('infoBar').textContent = 'Select a table from the sidebar';
+        return;
+    }}
+
+    const table = TABLES.find(t => t.name === currentTable);
+    let rows = DATA[currentTable] || [];
+    const search = document.getElementById('searchBox').value.toLowerCase();
+
+    if (search) {{
+        rows = rows.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(search)));
+    }}
+
+    if (sortCol !== null) {{
+        rows = [...rows].sort((a, b) => {{
+            let va = a[sortCol] ?? '', vb = b[sortCol] ?? '';
+            const na = parseFloat(va), nb = parseFloat(vb);
+            if (!isNaN(na) && !isNaN(nb)) {{ va = na; vb = nb; }}
+            if (va < vb) return sortAsc ? -1 : 1;
+            if (va > vb) return sortAsc ? 1 : -1;
+            return 0;
+        }});
+    }}
+
+    const cols = table.columns.map(c => c.name);
+    const totalRows = table.rows;
+    document.getElementById('infoBar').textContent =
+        `${{currentTable}} — showing ${{rows.length}} / ${{totalRows.toLocaleString()}} rows · ${{cols.length}} columns` +
+        (search ? ` · filtered by "${{search}}"` : '');
+
+    let html = '<table><thead><tr>';
+    html += cols.map(c => {{
+        let arrow = '';
+        if (sortCol === c) arrow = sortAsc ? ' ▲' : ' ▼';
+        return `<th onclick="sortBy('${{c.replace(/'/g, "\\\\'")}}')">${{c}}<span class="sort-arrow">${{arrow}}</span></th>`;
+    }}).join('');
+    html += '</tr></thead><tbody>';
+
+    rows.forEach(r => {{
+        const isPass = r['TestResult'] === 'PASS';
+        const isFail = r['TestResult'] === 'FAIL';
+        html += `<tr${{isFail ? ' class="highlight"' : ''}}>`;
+        cols.forEach(c => {{
+            let val = r[c] ?? '';
+            if (typeof val === 'number') val = parseFloat(val.toFixed(6));
+            if (c.startsWith('img_') && typeof val === 'string' && val.endsWith('.jpg')) {{
+                html += `<td><a class="img-link" href="${{val}}" target="_blank" title="${{val}}">&#128247;</a></td>`;
+            }} else {{
+                html += `<td title="${{String(val).replace(/"/g, '&quot;')}}">${{val}}</td>`;
+            }}
+        }});
+        html += '</tr>';
+    }});
+
+    html += '</tbody></table>';
+    document.getElementById('dataView').innerHTML = html;
+}}
+
+function sortBy(col) {{
+    if (sortCol === col) sortAsc = !sortAsc;
+    else {{ sortCol = col; sortAsc = true; }}
+    renderData();
+}}
+
+function filterRows() {{ renderData(); }}
+
+// Schema view
+function renderSchema() {{
+    if (!currentTable) {{
+        document.getElementById('schemaView').innerHTML = '<p style="color:#94a3b8;">Select a table.</p>';
+        return;
+    }}
+    const table = TABLES.find(t => t.name === currentTable);
+    let html = `<h3 style="margin-bottom:12px;">${{currentTable}} — ${{table.columns.length}} columns</h3>`;
+    html += '<table class="schema-table"><thead><tr><th>#</th><th>Column Name</th><th>Type</th></tr></thead><tbody>';
+    table.columns.forEach((c, i) => {{
+        html += `<tr><td>${{i+1}}</td><td>${{c.name}}</td><td>${{c.type || 'TEXT'}}</td></tr>`;
+    }});
+    html += '</tbody></table>';
+    document.getElementById('schemaView').innerHTML = html;
+    document.getElementById('infoBar').textContent = `${{currentTable}} — Schema (${{table.columns.length}} columns)`;
+}}
+
+// SQL (client-side note)
+function runSQL() {{
+    const sql = document.getElementById('sqlBox').value.trim();
+    if (!sql) return;
+    document.getElementById('sqlResults').innerHTML =
+        '<p style="padding:20px;color:#94a3b8;">⚠ SQL execution requires a server. ' +
+        'Use <code>python db_preview.py --sql "' + sql.replace(/"/g, '&quot;') + '"</code> in terminal.</p>';
+}}
+
+
+// Init
+renderSidebar();
+if (TABLES.length > 0) selectTable(TABLES[TABLES.length - 1].name);
+</script>
+</body>
+</html>"""
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Generate interactive HTML viewer for data.db"
+    )
+    parser.add_argument(
+        "--db", type=str, default=str(DB_PATH), help="SQLite database path"
+    )
+    parser.add_argument(
+        "-o", "--output", type=str, default=str(cfg.viewer_file), help="Output HTML file"
+    )
+    args = parser.parse_args()
+
+    db = Path(args.db)
+    if not db.exists():
+        print(f"Error: database not found: {db}")
+        return
+
+    print(f"Reading {db} …")
+    html = build_html(db)
+
+    out = Path(args.output)
+    out.write_text(html)
+    print(f"Viewer saved: {out.resolve()}")
+    print(f"Open with: open {out}")
+
+
+if __name__ == "__main__":
+    main()

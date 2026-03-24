@@ -1,0 +1,17 @@
+{
+  "gdrive": {
+    "remote": "samlai@meta.com",
+    "folder_url": "https://drive.google.com/drive/folders/1ksLzPBZkPCK0fui6NymeDsT4hmleEMpz"
+  },
+  "output_folder": "./output_pre_EVT2",
+  "filters": {
+    "dataset_keyword": "Summary_LanSi_Loma_CW_1_01_ONLINE",
+    "audit_keyword": "Summary_LanSi_Loma_CW_1_01_AuditTest_AUDIT_",
+    "data_extensions": [".csv", ".xls", ".xlsx"]
+  },
+  "slot_map": {
+    "1": "DTC_R",
+    "2": "DTC_L",
+    "3": "STC"
+  }
+}
