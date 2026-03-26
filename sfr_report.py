@@ -5,17 +5,18 @@ SlotID mapping:
     1 = DTC_R    2 = DTC_L    3 = STC
 
 Reports per part:
-    1. Summary: total records, pass/fail yield
-    2. Daily yield trend
-    3. SFR Min trend by distance
-    4. SFR distribution box plots  (JS — date-filterable)
-    5. Per-ROI box plots           (JS — date-filterable)
-    6. SFR statistics table
-    7. Top fail items
+    1. Summary: total records, pass/fail yield  (JS — date-filterable)
+    2. Daily yield trend                        (JS — date-filterable)
+    3. SFR Min trend by distance                (JS — date-filterable)
+    4. SFR distribution box plots               (JS — date-filterable)
+    5. Per-ROI box plots                        (JS — date-filterable)
+    6. SFR Deviation by ROI                     (JS — date-filterable)
+    7. SFR Dev Trend by Field                   (JS — date-filterable)
+    8. SFR statistics table                     (JS — date-filterable)
+    9. Top fail items                           (JS — date-filterable)
 
 Usage:
-    python sfr_report.py                     # generate report for latest day (default)
-    python sfr_report.py --all               # generate full HTML report (all dates)
+    python sfr_report.py                     # generate report (all dates embedded)
     python sfr_report.py --output report.html
     python sfr_report.py --days 30           # last 30 days only
 """
@@ -29,9 +30,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-import plotly.graph_objects as go
 from app_config import cfg
-from plotly.subplots import make_subplots
 
 DB_PATH = cfg.db_file
 TABLE = "sfr_data"
@@ -206,7 +205,7 @@ def load_data(
 
 
 # ---------------------------------------------------------------------------
-# Data embedding for client-side charts
+# Data embedding for client-side charts (ALL charts now JS-rendered)
 # ---------------------------------------------------------------------------
 
 
@@ -218,6 +217,8 @@ def _embed_chart_data(df: pd.DataFrame) -> str:
     for group in SFR_GROUPS.values():
         all_cols.update(group.values())
     for group in ROI_GROUPS.values():
+        all_cols.update(group.values())
+    for group in SFR_DEV_GROUPS.values():
         all_cols.update(group.values())
     for group in ROI_DEV_GROUPS.values():
         all_cols.update(group.values())
@@ -234,385 +235,77 @@ def _embed_chart_data(df: pd.DataFrame) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Report components — server-rendered (Plotly Python)
+# HTML placeholder builders (all charts are JS-rendered now)
 # ---------------------------------------------------------------------------
 
 
-def summary_html(df: pd.DataFrame, part: str | None = None) -> str:
-    total = len(df)
-    passed = (df["TestResult"] == "PASS").sum()
-    failed = (df["TestResult"] == "FAIL").sum()
-    yield_pct = (passed / total * 100) if total > 0 else 0
-    date_min = df["Date"].min()
-    date_max = df["Date"].max()
-    unique_sn = df["SerialNumber"].nunique()
+def _placeholder(div_id: str) -> str:
+    return f'<div id="{div_id}"></div>'
+
+
+def build_part_section(df: pd.DataFrame, part: str) -> str:
     color = PART_COLORS.get(part, "#3498db")
+    sfr_box_divs = ""
+    for gn in SFR_GROUPS:
+        sfr_box_divs += f'<div class="chart-container">{_placeholder(f"chart-sfr-box-online-{part}-{gn}")}</div>\n'
+    roi_box_divs = ""
+    for gn in ROI_GROUPS:
+        roi_box_divs += f'<div class="chart-container">{_placeholder(f"chart-roi-box-online-{part}-{gn}")}</div>\n'
+    dev_roi_divs = ""
+    for gn in ROI_DEV_GROUPS:
+        dev_roi_divs += f'<div class="chart-container">{_placeholder(f"chart-dev-roi-online-{part}-{gn}")}</div>\n'
+    sfr_trend_divs = ""
+    for gn in SFR_GROUPS:
+        sfr_trend_divs += f'<div class="chart-container">{_placeholder(f"chart-sfr-trend-online-{part}-{gn}")}</div>\n'
+    dev_trend_divs = ""
+    for gn in SFR_DEV_GROUPS:
+        dev_trend_divs += f'<div class="chart-container">{_placeholder(f"chart-dev-trend-online-{part}-{gn}")}</div>\n'
 
-    title_extra = f" — {part}" if part else ""
-    return f"""
-    <div class="summary-grid">
-        <div class="card" style="border-top:4px solid {color}">
-            <div class="card-title">Total{title_extra}</div>
-            <div class="card-value">{total:,}</div>
-        </div>
-        <div class="card">
-            <div class="card-title">Unique S/N</div>
-            <div class="card-value">{unique_sn:,}</div>
-        </div>
-        <div class="card">
-            <div class="card-title">Pass</div>
-            <div class="card-value" style="color:#2ecc71">{passed:,}</div>
-        </div>
-        <div class="card">
-            <div class="card-title">Fail</div>
-            <div class="card-value" style="color:#e74c3c">{failed:,}</div>
-        </div>
-        <div class="card">
-            <div class="card-title">Yield</div>
-            <div class="card-value" style="color:{'#2ecc71' if yield_pct>=95 else '#e67e22' if yield_pct>=90 else '#e74c3c'}">{yield_pct:.1f}%</div>
-        </div>
-        <div class="card">
-            <div class="card-title">Date Range</div>
-            <div class="card-value" style="font-size:1.1em">{date_min} → {date_max}</div>
-        </div>
-    </div>"""
-
-
-def fig_daily_yield(df: pd.DataFrame, part: str | None = None) -> str:
-    daily = (
-        df.groupby("Date")
-        .agg(
-            total=("TestResult", "count"),
-            passed=("TestResult", lambda x: (x == "PASS").sum()),
-        )
-        .reset_index()
-    )
-    daily["yield_pct"] = daily["passed"] / daily["total"] * 100
-    color = PART_COLORS.get(part, "#3498db")
-
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
-    fig.add_trace(
-        go.Bar(
-            x=daily["Date"],
-            y=daily["total"],
-            name="Total",
-            marker_color=color,
-            opacity=0.5,
-        ),
-        secondary_y=False,
-    )
-    fig.add_trace(
-        go.Bar(
-            x=daily["Date"],
-            y=daily["total"] - daily["passed"],
-            name="Fail",
-            marker_color="#e74c3c",
-            opacity=0.8,
-        ),
-        secondary_y=False,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=daily["Date"],
-            y=daily["yield_pct"],
-            name="Yield %",
-            mode="lines+markers",
-            line=dict(color="#2ecc71", width=3),
-            marker=dict(size=8),
-        ),
-        secondary_y=True,
-    )
-    fig.add_hline(
-        y=95,
-        line_dash="dash",
-        line_color="orange",
-        annotation_text="95% target",
-        secondary_y=True,
-    )
-
-    title = f"Daily Yield — {part}" if part else "Daily Yield — All Parts"
-    fig.update_layout(
-        title=title, barmode="overlay", height=350, margin=dict(l=50, r=50, t=60, b=50)
-    )
-    fig.update_yaxes(title_text="Count", secondary_y=False)
-    fig.update_yaxes(title_text="Yield %", range=[0, 105], secondary_y=True)
-    return fig.to_html(full_html=False, include_plotlyjs=False)
-
-
-def fig_daily_yield_overlay(df: pd.DataFrame) -> str:
-    """All 3 parts yield on one chart for comparison."""
-    fig = go.Figure()
-    for part in ["DTC_R", "DTC_L", "STC"]:
-        pdf = df[df["Part"] == part]
-        if pdf.empty:
-            continue
-        daily = (
-            pdf.groupby("Date")
-            .agg(
-                total=("TestResult", "count"),
-                passed=("TestResult", lambda x: (x == "PASS").sum()),
-            )
-            .reset_index()
-        )
-        daily["yield_pct"] = daily["passed"] / daily["total"] * 100
-        fig.add_trace(
-            go.Scatter(
-                x=daily["Date"],
-                y=daily["yield_pct"],
-                name=part,
-                mode="lines+markers",
-                line=dict(color=PART_COLORS[part], width=2.5),
-                marker=dict(size=7),
-            )
-        )
-
-    fig.add_hline(
-        y=95, line_dash="dash", line_color="orange", annotation_text="95% target"
-    )
-    fig.update_layout(
-        title="Daily Yield Comparison — DTC_R vs DTC_L vs STC",
-        xaxis_title="Date",
-        yaxis_title="Yield %",
-        yaxis=dict(range=[0, 105]),
-        height=400,
-        margin=dict(l=50, r=50, t=60, b=50),
-    )
-    return fig.to_html(full_html=False, include_plotlyjs=False)
-
-
-def fig_sfr_trend(df: pd.DataFrame, part: str | None = None) -> str:
-    figs_html = []
-    suffix = f" — {part}" if part else ""
-    for group_name, cols in SFR_GROUPS.items():
-        available = {k: v for k, v in cols.items() if v in df.columns}
-        if not available:
-            continue
-        daily_means = df.groupby("Date")[list(available.values())].mean().reset_index()
-        fig = go.Figure()
-        for label, col in available.items():
-            if col in daily_means.columns:
-                fig.add_trace(
-                    go.Scatter(
-                        x=daily_means["Date"],
-                        y=daily_means[col],
-                        mode="lines+markers",
-                        name=label,
-                        marker=dict(size=6),
-                    )
-                )
-        fig.update_layout(
-            title=f"SFR Min Trend — {group_name}{suffix}",
-            xaxis_title="Date",
-            yaxis_title="SFR (Ny/4)",
-            height=320,
-            margin=dict(l=50, r=50, t=60, b=50),
-            yaxis=dict(range=[0, 1]),
-        )
-        figs_html.append(fig.to_html(full_html=False, include_plotlyjs=False))
-    return "\n".join(figs_html)
-
-
-# ---------------------------------------------------------------------------
-# Report components — client-rendered (placeholder divs, JS fills them)
-# ---------------------------------------------------------------------------
-
-
-def fig_sfr_comparison(df: pd.DataFrame, source: str = "online") -> str:
-    """Placeholder for JS-rendered SFR comparison box plot."""
-    cols = SFR_GROUPS.get("VIS_25cm", {})
-    available = {k: v for k, v in cols.items() if v in df.columns}
-    if not available:
-        return ""
-    return f'<div id="chart-sfr-comparison-{source}"></div>'
-
-
-def fig_sfr_box(
-    df: pd.DataFrame, part: str | None = None, source: str = "online"
-) -> str:
-    """Placeholder divs for JS-rendered SFR distribution box plots."""
-    divs = []
-    for group_name, cols in SFR_GROUPS.items():
-        available = {k: v for k, v in cols.items() if v in df.columns}
-        if not available:
-            continue
-        div_id = f"chart-sfr-box-{source}-{part}-{group_name}"
-        divs.append(f'<div id="{div_id}"></div>')
-    return "\n".join(divs)
-
-
-def fig_roi_box(
-    df: pd.DataFrame, part: str | None = None, source: str = "online"
-) -> str:
-    """Placeholder divs for JS-rendered per-ROI SFR box plots."""
-    divs = []
-    for group_name, roi_cols in ROI_GROUPS.items():
-        available = {k: v for k, v in roi_cols.items() if v in df.columns}
-        if not available:
-            continue
-        div_id = f"chart-roi-box-{source}-{part}-{group_name}"
-        divs.append(f'<div id="{div_id}"></div>')
-    return "\n".join(divs)
-
-
-def fig_sfr_dev_roi(
-    df: pd.DataFrame, part: str | None = None, source: str = "online"
-) -> str:
-    """Placeholder divs for JS-rendered SFR deviation ROI box plots."""
-    divs = []
-    for group_name, roi_cols in ROI_DEV_GROUPS.items():
-        available = {k: v for k, v in roi_cols.items() if v in df.columns}
-        if not available:
-            continue
-        div_id = f"chart-dev-roi-{source}-{part}-{group_name}"
-        divs.append(f'<div id="{div_id}"></div>')
-    return "\n".join(divs)
-
-
-# ---------------------------------------------------------------------------
-# Server-rendered components (continued)
-# ---------------------------------------------------------------------------
-
-
-def fig_sfr_dev_trend(df: pd.DataFrame, part: str | None = None) -> str:
-    """Daily trend of min SFR deviation by field.
-
-    Uses DB _Min_Dev columns when available; falls back to computing
-    min across per-ROI _Dev columns for fields without a _Min_Dev column.
-    """
-    figs_html = []
-    suffix = f" — {part}" if part else ""
-    for group_name, dev_cols in SFR_DEV_GROUPS.items():
-        roi_dev_cols = ROI_DEV_GROUPS.get(group_name, {})
-
-        tmp = pd.DataFrame({"Date": df["Date"].values})
-        has_any = False
-        for field, min_dev_col in dev_cols.items():
-            if min_dev_col in df.columns:
-                tmp[field] = df[min_dev_col].values
-                has_any = True
-            else:
-                roi_cols = [
-                    c
-                    for lbl, c in roi_dev_cols.items()
-                    if lbl.startswith(field + "_ROI") and c in df.columns
-                ]
-                if roi_cols:
-                    tmp[field] = df[roi_cols].min(axis=1).values
-                    has_any = True
-
-        if not has_any:
-            continue
-
-        field_cols = [c for c in tmp.columns if c != "Date"]
-        daily_min = tmp.groupby("Date")[field_cols].min().reset_index()
-
-        fig = go.Figure()
-        for field in field_cols:
-            fig.add_trace(
-                go.Scatter(
-                    x=daily_min["Date"],
-                    y=daily_min[field],
-                    mode="lines+markers",
-                    name=field,
-                    marker=dict(size=6),
-                )
-            )
-        fig.add_hline(y=0, line_dash="dash", line_color="grey", opacity=0.6)
-        fig.update_layout(
-            title=f"Min SFR Dev Trend by Field — {group_name}{suffix}",
-            xaxis_title="Date",
-            yaxis_title="Min SFR Dev",
-            height=400,
-            margin=dict(l=50, r=50, t=60, b=50),
-        )
-        figs_html.append(fig.to_html(full_html=False, include_plotlyjs=False))
-    return "\n".join(figs_html)
-
-
-def stats_table_html(
-    df: pd.DataFrame, part: str | None = None, source: str = "online"
-) -> str:
-    """Placeholder div for JS-rendered SFR statistics table."""
-    div_id = f"stats-table-{source}-{part}"
-    return f'<div id="{div_id}"><p>Loading…</p></div>'
-
-
-def fail_analysis_html(
-    df: pd.DataFrame, part: str | None = None, source: str = "online"
-) -> str:
-    """Placeholder div for JS-rendered top fail items table."""
-    div_id = f"fail-table-{source}-{part}"
-    return f'<div id="{div_id}"><p>Loading…</p></div>'
-
-
-def build_part_section(
-    df: pd.DataFrame, part: str, full_df: pd.DataFrame | None = None
-) -> str:
-    trend_df = full_df if full_df is not None else df
-    color = PART_COLORS.get(part, "#3498db")
     return f"""
     <div class="part-section" id="{part}">
         <h2 style="border-left:5px solid {color}; padding-left:12px;">{part}</h2>
-        {summary_html(df, part)}
-        <div class="chart-container">{fig_daily_yield(trend_df, part)}</div>
-        <div class="chart-container">{fig_sfr_trend(trend_df, part)}</div>
-        <div class="chart-container">{fig_sfr_box(df, part, source="online")}</div>
-        <div class="chart-container">{fig_roi_box(df, part, source="online")}</div>
-        <div class="chart-container">{fig_sfr_dev_roi(df, part, source="online")}</div>
-        <div class="chart-container">{fig_sfr_dev_trend(trend_df, part)}</div>
+        <div id="summary-online-{part}"></div>
+        <div class="chart-container">{_placeholder(f"chart-daily-yield-online-{part}")}</div>
+        {sfr_trend_divs}
+        {sfr_box_divs}
+        {roi_box_divs}
+        {dev_roi_divs}
+        {dev_trend_divs}
         <h3>SFR Statistics — {part}</h3>
-        {stats_table_html(df, part, source="online")}
+        <div id="stats-table-online-{part}"><p>Loading…</p></div>
         <h3>Top Fail Items — {part}</h3>
-        {fail_analysis_html(df, part, source="online")}
+        <div id="fail-table-online-{part}"><p>Loading…</p></div>
     </div>"""
 
 
-def build_audit_part_section(
-    df: pd.DataFrame, part: str, full_df: pd.DataFrame | None = None
-) -> str:
-    """Build a per-part section for audit data (yield + SFR trends only)."""
-    trend_df = full_df if full_df is not None else df
+def build_audit_part_section(part: str) -> str:
     color = PART_COLORS.get(part, "#3498db")
+    sfr_trend_divs = ""
+    for gn in SFR_GROUPS:
+        sfr_trend_divs += f'<div class="chart-container">{_placeholder(f"chart-sfr-trend-audit-{part}-{gn}")}</div>\n'
+    sfr_box_divs = ""
+    for gn in SFR_GROUPS:
+        sfr_box_divs += f'<div class="chart-container">{_placeholder(f"chart-sfr-box-audit-{part}-{gn}")}</div>\n'
     return f"""
     <div class="part-subsection">
         <h3 style="border-left:4px solid {color}; padding-left:10px;">{part} — Audit</h3>
-        {summary_html(df, part)}
-        <div class="chart-container">{fig_daily_yield(trend_df, part)}</div>
-        <div class="chart-container">{fig_sfr_trend(trend_df, part)}</div>
-        <div class="chart-container">{fig_sfr_box(df, part, source="audit")}</div>
+        <div id="summary-audit-{part}"></div>
+        <div class="chart-container">{_placeholder(f"chart-daily-yield-audit-{part}")}</div>
+        {sfr_trend_divs}
+        {sfr_box_divs}
     </div>"""
 
 
-def build_audit_section(
-    audit_df: pd.DataFrame, full_audit_df: pd.DataFrame | None = None
-) -> str:
-    """Build the full Audit SFR section."""
-    if audit_df.empty:
+def build_audit_section(has_audit: bool) -> str:
+    if not has_audit:
         return ""
-
-    trend_audit = full_audit_df if full_audit_df is not None else audit_df
-
     parts_html = ""
     for part_name in SLOT_MAP.values():
-        part_df = audit_df[audit_df["Part"] == part_name]
-        if part_df.empty:
-            continue
-        full_part_df = (
-            trend_audit[trend_audit["Part"] == part_name]
-            if not trend_audit.empty
-            else None
-        )
-        parts_html += build_audit_part_section(part_df, part_name, full_df=full_part_df)
-
-    if not parts_html:
-        return ""
-
-    overlay = fig_daily_yield_overlay(trend_audit)
-
+        parts_html += build_audit_part_section(part_name)
     return f"""
     <div class="part-section" id="audit">
-        <h2 style="border-left:5px solid #e74c3c; padding-left:12px;">🔍 Audit SFR Trend</h2>
-        <div class="chart-container">{overlay}</div>
+        <h2 style="border-left:5px solid #e74c3c; padding-left:12px;">Audit SFR Trend</h2>
+        <div class="chart-container">{_placeholder("chart-yield-overlay-audit")}</div>
         {parts_html}
     </div>"""
 
@@ -623,30 +316,27 @@ def build_audit_section(
 
 
 def build_report(
-    df: pd.DataFrame,
-    audit_df: pd.DataFrame | None = None,
-    full_df: pd.DataFrame | None = None,
+    full_df: pd.DataFrame,
     full_audit_df: pd.DataFrame | None = None,
 ) -> str:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    trend_df = full_df if full_df is not None else df
-    trend_audit = full_audit_df if full_audit_df is not None else audit_df
 
-    # Per-part sections
+    # Determine which parts have data
+    available_parts = []
+    for part_name in SLOT_MAP.values():
+        if not full_df.empty and (full_df["Part"] == part_name).any():
+            available_parts.append(part_name)
+
+    # Per-part sections (all placeholder divs)
     part_sections = ""
-    for slot_id, part_name in SLOT_MAP.items():
-        part_df = df[df["Part"] == part_name]
-        if part_df.empty:
-            continue
-        full_part_df = (
-            trend_df[trend_df["Part"] == part_name] if not trend_df.empty else None
+    for part_name in available_parts:
+        part_sections += build_part_section(
+            full_df[full_df["Part"] == part_name], part_name
         )
-        part_sections += build_part_section(part_df, part_name, full_df=full_part_df)
 
     # Audit section
-    audit_section = ""
-    if audit_df is not None and not audit_df.empty:
-        audit_section = build_audit_section(audit_df, full_audit_df=trend_audit)
+    has_audit = full_audit_df is not None and not full_audit_df.empty
+    audit_section = build_audit_section(has_audit)
 
     # Navigation links
     nav_links = " ".join(
@@ -654,25 +344,28 @@ def build_report(
         for p in SLOT_MAP.values()
     )
     audit_nav = ""
-    if audit_section:
+    if has_audit:
         audit_nav = (
             '<a href="#audit" class="nav-link" style="border-color:#e74c3c">Audit</a>'
         )
 
-    # Date range for picker
+    # Date range for picker (from full data)
     all_dates: list[str] = []
-    if not df.empty:
-        all_dates += [str(df["Date"].min()), str(df["Date"].max())]
-    if audit_df is not None and not audit_df.empty:
-        all_dates += [str(audit_df["Date"].min()), str(audit_df["Date"].max())]
+    if not full_df.empty:
+        all_dates += [str(full_df["Date"].min()), str(full_df["Date"].max())]
+    if has_audit:
+        all_dates += [str(full_audit_df["Date"].min()), str(full_audit_df["Date"].max())]
     date_min = min(all_dates) if all_dates else ""
     date_max = max(all_dates) if all_dates else ""
 
-    # Embed data & config for JS charts
-    online_json = _embed_chart_data(df)
-    audit_json = _embed_chart_data(audit_df if audit_df is not None else pd.DataFrame())
+    # Embed ALL data for JS charts
+    online_json = _embed_chart_data(full_df)
+    audit_json = _embed_chart_data(
+        full_audit_df if full_audit_df is not None else pd.DataFrame()
+    )
     sfr_groups_json = json.dumps(SFR_GROUPS)
     roi_groups_json = json.dumps(ROI_GROUPS)
+    sfr_dev_groups_json = json.dumps(SFR_DEV_GROUPS)
     roi_dev_groups_json = json.dumps(ROI_DEV_GROUPS)
     part_colors_json = json.dumps(PART_COLORS)
     parts_json = json.dumps(list(SLOT_MAP.values()))
@@ -724,7 +417,7 @@ def build_report(
 </head>
 <body>
 
-<h1>📊 SFR Report — Loma CW_1_01 ONLINE</h1>
+<h1>SFR Report — Loma CW_1_01 ONLINE</h1>
 <div class="nav">
     <span style="color:#7f8c8d;font-size:0.9em;">Jump to:</span>
     <a href="#overview" class="nav-link" style="border-color:#2c3e50">Comparison</a>
@@ -733,7 +426,7 @@ def build_report(
 </div>
 
 <div class="date-filter">
-    <label>📅 Date Range:</label>
+    <label>Date Range:</label>
     <input type="date" id="date-start" value="{date_min}" min="{date_min}" max="{date_max}">
     <span style="color:#7f8c8d">to</span>
     <input type="date" id="date-end" value="{date_max}" min="{date_min}" max="{date_max}">
@@ -745,10 +438,10 @@ def build_report(
 <!-- ===== COMPARISON ===== -->
 <div id="overview">
     <h2>Yield Comparison — All Parts</h2>
-    <div class="chart-container">{fig_daily_yield_overlay(trend_df)}</div>
+    <div class="chart-container">{_placeholder("chart-yield-overlay-online")}</div>
 
     <h2>SFR Comparison by Part — VIS 25cm</h2>
-    <div class="chart-container">{fig_sfr_comparison(df, source="online")}</div>
+    <div class="chart-container">{_placeholder("chart-sfr-comparison-online")}</div>
 </div>
 
 <!-- ===== PER-PART SECTIONS ===== -->
@@ -765,6 +458,7 @@ const ONLINE_DATA = {online_json};
 const AUDIT_DATA  = {audit_json};
 const SFR_GROUPS  = {sfr_groups_json};
 const ROI_GROUPS  = {roi_groups_json};
+const SFR_DEV_GROUPS = {sfr_dev_groups_json};
 const ROI_DEV_GROUPS = {roi_dev_groups_json};
 const PART_COLORS = {part_colors_json};
 const PARTS = {parts_json};
@@ -772,6 +466,202 @@ const PARTS = {parts_json};
 function filterByDate(data, start, end) {{
     return data.filter(function(r) {{
         return (!start || r.Date >= start) && (!end || r.Date <= end);
+    }});
+}}
+
+/* ---- Helper: group data by Date ---- */
+function groupByDate(data) {{
+    var groups = {{}};
+    data.forEach(function(r) {{
+        if (!groups[r.Date]) groups[r.Date] = [];
+        groups[r.Date].push(r);
+    }});
+    var dates = Object.keys(groups).sort();
+    return {{ dates: dates, groups: groups }};
+}}
+
+/* ---- Summary cards ---- */
+function renderSummary(data, part, source) {{
+    var divId = 'summary-' + source + '-' + part;
+    var el = document.getElementById(divId);
+    if (!el) return;
+    var total = data.length;
+    var passed = data.filter(function(r) {{ return r.TestResult === 'PASS'; }}).length;
+    var failed = total - passed;
+    var yieldPct = total > 0 ? (passed / total * 100) : 0;
+    var dates = data.map(function(r) {{ return r.Date; }}).sort();
+    var dateMin = dates.length ? dates[0] : '-';
+    var dateMax = dates.length ? dates[dates.length - 1] : '-';
+    var sns = {{}};
+    data.forEach(function(r) {{ if (r.SerialNumber) sns[r.SerialNumber] = true; }});
+    var uniqueSN = Object.keys(sns).length || total;
+    var color = PART_COLORS[part] || '#3498db';
+    var yieldColor = yieldPct >= 95 ? '#2ecc71' : yieldPct >= 90 ? '#e67e22' : '#e74c3c';
+    el.innerHTML = '<div class="summary-grid">' +
+        '<div class="card" style="border-top:4px solid ' + color + '"><div class="card-title">Total — ' + part + '</div><div class="card-value">' + total.toLocaleString() + '</div></div>' +
+        '<div class="card"><div class="card-title">Unique S/N</div><div class="card-value">' + uniqueSN.toLocaleString() + '</div></div>' +
+        '<div class="card"><div class="card-title">Pass</div><div class="card-value" style="color:#2ecc71">' + passed.toLocaleString() + '</div></div>' +
+        '<div class="card"><div class="card-title">Fail</div><div class="card-value" style="color:#e74c3c">' + failed.toLocaleString() + '</div></div>' +
+        '<div class="card"><div class="card-title">Yield</div><div class="card-value" style="color:' + yieldColor + '">' + yieldPct.toFixed(1) + '%</div></div>' +
+        '<div class="card"><div class="card-title">Date Range</div><div class="card-value" style="font-size:1.1em">' + dateMin + ' &rarr; ' + dateMax + '</div></div>' +
+        '</div>';
+}}
+
+/* ---- Yield Comparison Overlay (all parts on one chart) ---- */
+function renderYieldOverlay(data, divId) {{
+    var el = document.getElementById(divId);
+    if (!el) return;
+    var traces = [];
+    PARTS.forEach(function(part) {{
+        var pd = data.filter(function(r) {{ return r.Part === part; }});
+        if (!pd.length) return;
+        var g = groupByDate(pd);
+        var yieldVals = g.dates.map(function(d) {{
+            var rows = g.groups[d];
+            var passed = rows.filter(function(r) {{ return r.TestResult === 'PASS'; }}).length;
+            return rows.length > 0 ? (passed / rows.length * 100) : 0;
+        }});
+        traces.push({{
+            type: 'scatter', mode: 'lines+markers',
+            x: g.dates, y: yieldVals, name: part,
+            line: {{color: PART_COLORS[part], width: 2.5}},
+            marker: {{size: 7}}
+        }});
+    }});
+    if (!traces.length) return;
+    traces.push({{
+        type: 'scatter', mode: 'lines', x: traces[0].x,
+        y: traces[0].x.map(function() {{ return 95; }}),
+        name: '95% target', line: {{dash: 'dash', color: 'orange', width: 2}},
+        showlegend: true
+    }});
+    Plotly.react(divId, traces, {{
+        title: 'Daily Yield Comparison — DTC_R vs DTC_L vs STC',
+        xaxis: {{title: 'Date'}}, yaxis: {{title: 'Yield %', range: [0, 105]}},
+        height: 400, margin: {{l: 50, r: 50, t: 60, b: 50}}
+    }});
+}}
+
+/* ---- Daily Yield per part (bar + line, dual y-axis) ---- */
+function renderDailyYield(data, part, source) {{
+    var divId = 'chart-daily-yield-' + source + '-' + part;
+    var el = document.getElementById(divId);
+    if (!el) return;
+    var g = groupByDate(data);
+    var totals = [], fails = [], yields = [];
+    g.dates.forEach(function(d) {{
+        var rows = g.groups[d];
+        var t = rows.length;
+        var p = rows.filter(function(r) {{ return r.TestResult === 'PASS'; }}).length;
+        totals.push(t);
+        fails.push(t - p);
+        yields.push(t > 0 ? (p / t * 100) : 0);
+    }});
+    var color = PART_COLORS[part] || '#3498db';
+    var traces = [
+        {{ type: 'bar', x: g.dates, y: totals, name: 'Total', marker: {{color: color}}, opacity: 0.5, yaxis: 'y' }},
+        {{ type: 'bar', x: g.dates, y: fails, name: 'Fail', marker: {{color: '#e74c3c'}}, opacity: 0.8, yaxis: 'y' }},
+        {{ type: 'scatter', mode: 'lines+markers', x: g.dates, y: yields, name: 'Yield %',
+          line: {{color: '#2ecc71', width: 3}}, marker: {{size: 8}}, yaxis: 'y2' }},
+        {{ type: 'scatter', mode: 'lines', x: g.dates,
+          y: g.dates.map(function() {{ return 95; }}),
+          name: '95% target', line: {{dash: 'dash', color: 'orange', width: 2}},
+          showlegend: true, yaxis: 'y2' }}
+    ];
+    Plotly.react(divId, traces, {{
+        title: 'Daily Yield — ' + part,
+        barmode: 'overlay', height: 350,
+        margin: {{l: 50, r: 50, t: 60, b: 50}},
+        yaxis: {{title: 'Count'}},
+        yaxis2: {{title: 'Yield %', range: [0, 105], overlaying: 'y', side: 'right'}}
+    }});
+}}
+
+/* ---- SFR Min Trend (line chart per group) ---- */
+function renderSfrTrend(data, part, source) {{
+    Object.entries(SFR_GROUPS).forEach(function(e) {{
+        var groupName = e[0], cols = e[1];
+        var divId = 'chart-sfr-trend-' + source + '-' + part + '-' + groupName;
+        var el = document.getElementById(divId);
+        if (!el) return;
+        var g = groupByDate(data);
+        var traces = [];
+        Object.entries(cols).forEach(function(fe) {{
+            var label = fe[0], col = fe[1];
+            var xVals = [], yVals = [];
+            g.dates.forEach(function(d) {{
+                var rows = g.groups[d];
+                var vals = rows.map(function(r) {{ return r[col]; }}).filter(function(v) {{ return v !== null && v !== undefined && !isNaN(v); }});
+                if (vals.length) {{
+                    xVals.push(d);
+                    yVals.push(vals.reduce(function(a,b) {{ return a+b; }}, 0) / vals.length);
+                }}
+            }});
+            if (xVals.length) {{
+                traces.push({{
+                    type: 'scatter', mode: 'lines+markers',
+                    x: xVals, y: yVals, name: label, marker: {{size: 6}}
+                }});
+            }}
+        }});
+        if (!traces.length) return;
+        Plotly.react(divId, traces, {{
+            title: 'SFR Min Trend — ' + groupName + ' — ' + part,
+            xaxis: {{title: 'Date'}}, yaxis: {{title: 'SFR (Ny/4)', range: [0, 1]}},
+            height: 320, margin: {{l: 50, r: 50, t: 60, b: 50}}
+        }});
+    }});
+}}
+
+/* ---- SFR Dev Trend by Field (line chart) ---- */
+function renderSfrDevTrend(data, part, source) {{
+    Object.entries(SFR_DEV_GROUPS).forEach(function(e) {{
+        var groupName = e[0], devCols = e[1];
+        var divId = 'chart-dev-trend-' + source + '-' + part + '-' + groupName;
+        var el = document.getElementById(divId);
+        if (!el) return;
+
+        var roiDevCols = ROI_DEV_GROUPS[groupName] || {{}};
+        var g = groupByDate(data);
+        var traces = [];
+
+        Object.entries(devCols).forEach(function(fe) {{
+            var field = fe[0], minDevCol = fe[1];
+            var xVals = [], yVals = [];
+            g.dates.forEach(function(d) {{
+                var rows = g.groups[d];
+                /* Try the _Min_Dev column first */
+                var vals = rows.map(function(r) {{ return r[minDevCol]; }}).filter(function(v) {{ return v !== null && v !== undefined && !isNaN(v); }});
+                if (!vals.length) {{
+                    /* Fallback: compute min across per-ROI _Dev columns */
+                    var roiCols = Object.entries(roiDevCols).filter(function(re) {{ return re[0].startsWith(field + '_ROI'); }}).map(function(re) {{ return re[1]; }});
+                    if (roiCols.length) {{
+                        rows.forEach(function(r) {{
+                            var rv = roiCols.map(function(c) {{ return r[c]; }}).filter(function(v) {{ return v !== null && v !== undefined && !isNaN(v); }});
+                            if (rv.length) vals.push(Math.min.apply(null, rv));
+                        }});
+                    }}
+                }}
+                if (vals.length) {{
+                    xVals.push(d);
+                    yVals.push(Math.min.apply(null, vals));
+                }}
+            }});
+            if (xVals.length) {{
+                traces.push({{
+                    type: 'scatter', mode: 'lines+markers',
+                    x: xVals, y: yVals, name: field, marker: {{size: 6}}
+                }});
+            }}
+        }});
+        if (!traces.length) return;
+        Plotly.react(divId, traces, {{
+            title: 'Min SFR Dev Trend by Field — ' + groupName + ' — ' + part,
+            xaxis: {{title: 'Date'}}, yaxis: {{title: 'Min SFR Dev'}},
+            height: 400, margin: {{l: 50, r: 50, t: 60, b: 50}},
+            shapes: [{{type:'line', yref:'y', y0:0, y1:0, xref:'paper', x0:0, x1:1,
+                       line:{{dash:'dash', color:'grey', width:1}}, opacity:0.6}}]
+        }});
     }});
 }}
 
@@ -962,13 +852,33 @@ function renderFailTable(data, part, source) {{
 
 /* ---- Render all JS-driven charts for a data source ---- */
 function renderAllCharts(source, data) {{
+    /* Yield overlay */
+    var overlayId = 'chart-yield-overlay-' + source;
+    if (document.getElementById(overlayId)) renderYieldOverlay(data, overlayId);
+
+    /* SFR Comparison */
     if (source === 'online') {{
         var el = document.getElementById('chart-sfr-comparison-online');
         if (el) renderSfrComparison(data, 'chart-sfr-comparison-online');
     }}
+
     PARTS.forEach(function(part) {{
         var pd = data.filter(function(r) {{ return r.Part === part; }});
         if (!pd.length) return;
+
+        /* Summary cards */
+        renderSummary(pd, part, source);
+
+        /* Daily yield */
+        renderDailyYield(pd, part, source);
+
+        /* SFR Min Trend */
+        renderSfrTrend(pd, part, source);
+
+        /* SFR Dev Trend */
+        if (source === 'online') renderSfrDevTrend(pd, part, source);
+
+        /* Box plots */
         Object.entries(SFR_GROUPS).forEach(function(e) {{
             var gn = e[0], cols = e[1];
             var id = 'chart-sfr-box-' + source + '-' + part + '-' + gn;
@@ -984,6 +894,8 @@ function renderAllCharts(source, data) {{
             var id = 'chart-dev-roi-' + source + '-' + part + '-' + gn;
             if (document.getElementById(id)) renderDevRoi(pd, part, gn, cols, id);
         }});
+
+        /* Tables */
         renderStatsTable(pd, part, source);
         renderFailTable(pd, part, source);
     }});
@@ -1044,7 +956,7 @@ def main() -> None:
         "--all",
         action="store_true",
         dest="show_all",
-        help="Show all data (default: latest day only)",
+        help="(Deprecated, all data is now always embedded)",
     )
     args = parser.parse_args()
 
@@ -1055,36 +967,16 @@ def main() -> None:
     full_audit_df = load_data(Path(args.db), args.days, table=AUDIT_TABLE)
     print(f"Loaded {len(full_audit_df)} records (Audit)")
 
-    # Default: filter to latest day in DB (unless --days or --all given)
-    # Trend plots always use the full (unfiltered) data.
-    df = full_df
-    audit_df = full_audit_df
-    if args.days is None and not args.show_all:
-        latest = None
-        if not full_df.empty:
-            latest = full_df["Date"].max()
-        if not full_audit_df.empty:
-            audit_latest = full_audit_df["Date"].max()
-            latest = max(latest, audit_latest) if latest else audit_latest
-        if latest is not None:
-            df = full_df[full_df["Date"] == latest]
-            audit_df = (
-                full_audit_df[full_audit_df["Date"] == latest]
-                if not full_audit_df.empty
-                else full_audit_df
-            )
-            print(f"Filtered to latest day: {latest}  (use --all for full history)")
-
     for part in SLOT_MAP.values():
-        cnt = (df["Part"] == part).sum()
+        cnt = (full_df["Part"] == part).sum()
         print(f"  {part}: {cnt} rows")
 
     for part in SLOT_MAP.values():
-        cnt = (audit_df["Part"] == part).sum() if not audit_df.empty else 0
+        cnt = (full_audit_df["Part"] == part).sum() if not full_audit_df.empty else 0
         print(f"  {part} (audit): {cnt} rows")
 
     print("Building report …")
-    html = build_report(df, audit_df, full_df=full_df, full_audit_df=full_audit_df)
+    html = build_report(full_df, full_audit_df)
 
     output = Path(args.output)
     output.write_text(html)
