@@ -1,6 +1,6 @@
 {
   "gdrive": {
-    "remote": "samlai@meta.com",
+    "remote": "manus_google_drive",
     "folder_url": "https://drive.google.com/drive/folders/1ksLzPBZkPCK0fui6NymeDsT4hmleEMpz"
   },
   "output_folder": "./output_pre_EVT2",
