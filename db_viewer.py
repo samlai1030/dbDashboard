@@ -54,6 +54,15 @@ def _get_table_data(
     return df.to_dict(orient="records")
 
 
+def _load_image_id_map(output_folder: Path) -> dict:
+    """Load the image filename → Google Drive file ID mapping."""
+    map_file = output_folder / "image_id_map.json"
+    if map_file.exists():
+        with open(map_file) as f:
+            return json.load(f)
+    return {}
+
+
 def build_html(db_path: Path) -> str:
     conn = sqlite3.connect(str(db_path))
     tables = _get_tables(conn)
@@ -63,6 +72,11 @@ def build_html(db_path: Path) -> str:
     for t in tables:
         all_data[t["name"]] = _get_table_data(conn, t["name"], limit=500)
     conn.close()
+
+    # Load Google Drive image ID mapping
+    output_folder = db_path.parent
+    image_id_map = _load_image_id_map(output_folder)
+    image_id_map_json = json.dumps(image_id_map)
 
     tables_json = json.dumps(tables)
     data_json = json.dumps(all_data)
@@ -188,6 +202,7 @@ tr.highlight td {{ background: #fef3c7; }}
 <script>
 const TABLES = {tables_json};
 const DATA = {data_json};
+const IMG_ID_MAP = {image_id_map_json};
 
 let currentTable = null;
 let currentView = 'data';
@@ -285,7 +300,12 @@ function renderData() {{
             let val = r[c] ?? '';
             if (typeof val === 'number') val = parseFloat(val.toFixed(6));
             if (c.startsWith('img_') && typeof val === 'string' && val.endsWith('.jpg')) {{
-                html += `<td><a class="img-link" href="${{val}}" target="_blank" title="${{val}}">&#128247;</a></td>`;
+                const fname = val.replace('images/', '');
+                const fileId = IMG_ID_MAP[fname];
+                const imgUrl = fileId
+                    ? `https://drive.google.com/file/d/${{fileId}}/view`
+                    : val;
+                html += `<td><a class="img-link" href="${{imgUrl}}" target="_blank" title="${{fname}}">&#128247;</a></td>`;
             }} else {{
                 html += `<td title="${{String(val).replace(/"/g, '&quot;')}}">${{val}}</td>`;
             }}

@@ -1,7 +1,8 @@
 {
   "gdrive": {
     "remote": "manus_google_drive",
-    "folder_url": "https://drive.google.com/drive/folders/1ksLzPBZkPCK0fui6NymeDsT4hmleEMpz"
+    "folder_url": "https://drive.google.com/drive/folders/1ksLzPBZkPCK0fui6NymeDsT4hmleEMpz",
+    "images_folder_id": "1yKXaAEE7LzePXxDtuP02ALz9WkJhl0nV"
   },
   "output_folder": "./output_pre_EVT2",
   "filters": {
