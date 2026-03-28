@@ -7,13 +7,14 @@ SlotID mapping:
 Reports per part:
     1. Summary: total records, pass/fail yield  (JS — date-filterable)
     2. Daily yield trend                        (JS — date-filterable)
-    3. SFR Min trend by distance                (JS — date-filterable)
-    4. SFR distribution box plots               (JS — date-filterable)
-    5. Per-ROI box plots                        (JS — date-filterable)
-    6. SFR Deviation by ROI                     (JS — date-filterable)
-    7. SFR Dev Trend by Field                   (JS — date-filterable)
-    8. SFR statistics table                     (JS — date-filterable)
-    9. Top fail items                           (JS — date-filterable)
+    3. BinA / BinB / Fail yield trend           (JS — date-filterable)
+    4. SFR Min trend by distance                (JS — date-filterable)
+    5. SFR distribution box plots               (JS — date-filterable)
+    6. Per-ROI box plots                        (JS — date-filterable)
+    7. SFR Deviation by ROI                     (JS — date-filterable)
+    8. SFR Dev Trend by Field                   (JS — date-filterable)
+    9. SFR statistics table                     (JS — date-filterable)
+   10. Top fail items                           (JS — date-filterable)
 
 Usage:
     python sfr_report.py                     # generate report (all dates embedded)
@@ -29,6 +30,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from app_config import cfg
 
@@ -139,6 +141,302 @@ ROI_DEV_GROUPS = {
 
 
 # ---------------------------------------------------------------------------
+# BinA / BinB / Fail grading specification
+# ---------------------------------------------------------------------------
+
+# SFR Absolute specs: {mode: {field: (bin_a_ll, bin_b_ll, ul)}}
+SFR_ABS_SPEC = {
+    "VIS": {
+        "01F": (0.68, 0.64, 0.90),
+        "03F": (0.67, 0.63, 0.90),
+        "06F": (0.66, 0.62, 0.90),
+        "08F": (0.66, 0.62, 0.90),
+    },
+    "IR": {
+        "01F": (0.59, 0.55, 0.90),
+        "03F": (0.57, 0.53, 0.90),
+        "06F": (0.56, 0.52, 0.90),
+        "08F": (0.55, 0.51, 0.90),
+    },
+}
+
+# SFR_drop specs: {mode: (bin_a_ll, bin_b_ll, ul)}
+SFR_DROP_SPEC = {
+    "VIS": (-0.15, -0.18, 0.10),
+    "IR": (-0.10, -0.14, 0.10),
+}
+
+# SFR_avg_drop specs: {mode: (bin_a_ll, bin_b_ll, ul)}
+SFR_AVG_DROP_SPEC = {
+    "VIS": (-0.08, -0.09, 0.10),
+    "IR": (-0.06, -0.07, 0.10),
+}
+
+# ROI columns to check per part for absolute SFR
+# DTC_L: 08F uses ROI17, ROI19, ROI25-28 (skip ROI18, ROI20, ROI21-24)
+# DTC_R: 08F uses ROI17, ROI19, ROI21-24 (skip ROI18, ROI20, ROI25-28)
+# STC: same as DTC_L for now (no specific rule given, use all available)
+
+def _col(mode: str, field: str, suffix: str) -> str:
+    """Build column name like SFR_VIS_25cm_Ny4_01F_ROI1."""
+    return f"SFR_{mode}_25cm_Ny4_{field}_{suffix}"
+
+
+def _safe_val(row, col):
+    """Get numeric value from row, return NaN if missing."""
+    if col not in row.index:
+        return np.nan
+    v = row[col]
+    if pd.isna(v):
+        return np.nan
+    return float(v)
+
+
+def _safe_avg(row, col1, col2):
+    """Average of two column values, NaN if either missing."""
+    v1 = _safe_val(row, col1)
+    v2 = _safe_val(row, col2)
+    if np.isnan(v1) or np.isnan(v2):
+        return np.nan
+    return (v1 + v2) / 2.0
+
+
+def _compute_avg_cols(row, mode: str, part: str) -> dict[str, float]:
+    """Compute the Avg columns for a given mode (VIS/IR) and part."""
+    result = {}
+    prefix = f"SFR_{mode}_25cm_Ny4"
+
+    # 01F_Avg = min(avg(1,2), avg(3,2), avg(3,4), avg(1,4))
+    vals_01f = [
+        _safe_avg(row, f"{prefix}_01F_ROI1", f"{prefix}_01F_ROI2"),
+        _safe_avg(row, f"{prefix}_01F_ROI3", f"{prefix}_01F_ROI2"),
+        _safe_avg(row, f"{prefix}_01F_ROI3", f"{prefix}_01F_ROI4"),
+        _safe_avg(row, f"{prefix}_01F_ROI1", f"{prefix}_01F_ROI4"),
+    ]
+    valid = [v for v in vals_01f if not np.isnan(v)]
+    result[f"{prefix}_01F_Avg"] = min(valid) if valid else np.nan
+
+    # 03F_Avg = min(avg(7,8), avg(5,8), avg(5,6), avg(6,7))
+    vals_03f = [
+        _safe_avg(row, f"{prefix}_03F_ROI7", f"{prefix}_03F_ROI8"),
+        _safe_avg(row, f"{prefix}_03F_ROI5", f"{prefix}_03F_ROI8"),
+        _safe_avg(row, f"{prefix}_03F_ROI5", f"{prefix}_03F_ROI6"),
+        _safe_avg(row, f"{prefix}_03F_ROI6", f"{prefix}_03F_ROI7"),
+    ]
+    valid = [v for v in vals_03f if not np.isnan(v)]
+    result[f"{prefix}_03F_Avg"] = min(valid) if valid else np.nan
+
+    # 06F_Avg = min(avg(9,13), avg(12,16), avg(10,14), avg(11,15))
+    vals_06f = [
+        _safe_avg(row, f"{prefix}_06F_ROI9", f"{prefix}_06F_ROI13"),
+        _safe_avg(row, f"{prefix}_06F_ROI12", f"{prefix}_06F_ROI16"),
+        _safe_avg(row, f"{prefix}_06F_ROI10", f"{prefix}_06F_ROI14"),
+        _safe_avg(row, f"{prefix}_06F_ROI11", f"{prefix}_06F_ROI15"),
+    ]
+    valid = [v for v in vals_06f if not np.isnan(v)]
+    result[f"{prefix}_06F_Avg"] = min(valid) if valid else np.nan
+
+    # 08F_Avg_Left = min(avg(25,26), avg(27,28), 17, 19)
+    vals_08f_left = [
+        _safe_avg(row, f"{prefix}_08F_ROI25", f"{prefix}_08F_ROI26"),
+        _safe_avg(row, f"{prefix}_08F_ROI27", f"{prefix}_08F_ROI28"),
+        _safe_val(row, f"{prefix}_08F_ROI17"),
+        _safe_val(row, f"{prefix}_08F_ROI19"),
+    ]
+    valid = [v for v in vals_08f_left if not np.isnan(v)]
+    result[f"{prefix}_08F_Avg_Left"] = min(valid) if valid else np.nan
+
+    # 08F_Avg_Right = min(avg(23,24), avg(21,22), 17, 19)
+    vals_08f_right = [
+        _safe_avg(row, f"{prefix}_08F_ROI23", f"{prefix}_08F_ROI24"),
+        _safe_avg(row, f"{prefix}_08F_ROI21", f"{prefix}_08F_ROI22"),
+        _safe_val(row, f"{prefix}_08F_ROI17"),
+        _safe_val(row, f"{prefix}_08F_ROI19"),
+    ]
+    valid = [v for v in vals_08f_right if not np.isnan(v)]
+    result[f"{prefix}_08F_Avg_Right"] = min(valid) if valid else np.nan
+
+    # 08F_Min_Left = min(17, 19, 25, 26, 27, 28)
+    vals_min_left = [
+        _safe_val(row, f"{prefix}_08F_ROI17"),
+        _safe_val(row, f"{prefix}_08F_ROI19"),
+        _safe_val(row, f"{prefix}_08F_ROI25"),
+        _safe_val(row, f"{prefix}_08F_ROI26"),
+        _safe_val(row, f"{prefix}_08F_ROI27"),
+        _safe_val(row, f"{prefix}_08F_ROI28"),
+    ]
+    valid = [v for v in vals_min_left if not np.isnan(v)]
+    result[f"{prefix}_08F_Min_Left"] = min(valid) if valid else np.nan
+
+    # 08F_Min_Right = min(17, 19, 21, 22, 23, 24)
+    vals_min_right = [
+        _safe_val(row, f"{prefix}_08F_ROI17"),
+        _safe_val(row, f"{prefix}_08F_ROI19"),
+        _safe_val(row, f"{prefix}_08F_ROI21"),
+        _safe_val(row, f"{prefix}_08F_ROI22"),
+        _safe_val(row, f"{prefix}_08F_ROI23"),
+        _safe_val(row, f"{prefix}_08F_ROI24"),
+    ]
+    valid = [v for v in vals_min_right if not np.isnan(v)]
+    result[f"{prefix}_08F_Min_Right"] = min(valid) if valid else np.nan
+
+    return result
+
+
+def _get_abs_columns_for_part(mode: str, field: str, part: str) -> list[str]:
+    """Return the list of column names to check for absolute SFR spec."""
+    prefix = f"SFR_{mode}_25cm_Ny4_{field}"
+    if field == "01F":
+        return [f"{prefix}_ROI{i}" for i in range(1, 5)] + [f"{prefix}_Min", f"{prefix}_Avg"]
+    elif field == "03F":
+        return [f"{prefix}_ROI{i}" for i in range(5, 9)] + [f"{prefix}_Min", f"{prefix}_Avg"]
+    elif field == "06F":
+        return [f"{prefix}_ROI{i}" for i in range(9, 17)] + [f"{prefix}_Min", f"{prefix}_Avg"]
+    elif field == "08F":
+        cols = [f"{prefix}_ROI17", f"{prefix}_ROI19"]
+        if part == "DTC_L":
+            cols += [f"{prefix}_ROI{i}" for i in range(25, 29)]
+            cols += [f"{prefix}_Min", f"{prefix}_Avg_Left", f"{prefix}_Min_Left"]
+        elif part == "DTC_R":
+            cols += [f"{prefix}_ROI{i}" for i in range(21, 25)]
+            cols += [f"{prefix}_Min", f"{prefix}_Avg_Right", f"{prefix}_Min_Right"]
+        else:
+            # STC or unknown: check all available
+            cols += [f"{prefix}_ROI{i}" for i in range(21, 29)]
+            cols += [f"{prefix}_Min"]
+        return cols
+    return []
+
+
+def _get_drop_columns_for_part(mode: str, field: str, part: str) -> list[str]:
+    """Return the list of _Dev column names to check for SFR_drop spec."""
+    prefix = f"SFR_{mode}_25cm_Ny4_{field}"
+    if field == "01F":
+        return [f"{prefix}_ROI{i}_Dev" for i in range(1, 5)] + [f"{prefix}_Min_Dev"]
+    elif field == "03F":
+        return [f"{prefix}_ROI{i}_Dev" for i in range(5, 9)] + [f"{prefix}_Min_Dev"]
+    elif field == "06F":
+        return [f"{prefix}_ROI{i}_Dev" for i in range(9, 17)] + [f"{prefix}_Min_Dev"]
+    elif field == "08F":
+        cols = [f"{prefix}_ROI17_Dev", f"{prefix}_ROI19_Dev"]
+        if part == "DTC_L":
+            cols += [f"{prefix}_ROI{i}_Dev" for i in range(25, 29)]
+        elif part == "DTC_R":
+            cols += [f"{prefix}_ROI{i}_Dev" for i in range(21, 25)]
+        else:
+            cols += [f"{prefix}_ROI{i}_Dev" for i in range(21, 29)]
+        cols.append(f"{prefix}_Min_Dev")
+        return cols
+    return []
+
+
+def _get_avg_drop_columns_for_part(mode: str, field: str, part: str) -> list[str]:
+    """Return the list of _Avg_Dev column names to check for SFR_avg_drop spec."""
+    prefix = f"SFR_{mode}_25cm_Ny4_{field}"
+    if field in ("01F", "03F", "06F"):
+        return [f"{prefix}_Avg_Dev"]
+    elif field == "08F":
+        if part == "DTC_L":
+            return [f"{prefix}_Avg_Left_Dev"]
+        elif part == "DTC_R":
+            return [f"{prefix}_Avg_Right_Dev"]
+        else:
+            return [f"{prefix}_Avg_Left_Dev", f"{prefix}_Avg_Right_Dev"]
+    return []
+
+
+def _check_spec(row, columns: list[str], bin_a_ll: float, bin_b_ll: float, ul: float) -> str:
+    """Check if all columns in the row pass Bin_A, Bin_B, or Fail.
+    Returns 'Bin_A', 'Bin_B', or 'Fail'.
+    If no valid data, returns 'Bin_A' (assume pass when data is missing).
+    """
+    worst = "Bin_A"
+    for col in columns:
+        v = _safe_val(row, col)
+        if np.isnan(v):
+            continue
+        if v > ul or v < bin_b_ll:
+            return "Fail"
+        if v < bin_a_ll:
+            worst = "Bin_B"
+    return worst
+
+
+def grade_row(row, part: str) -> str:
+    """Determine BinGrade for a single row based on the spec.
+    Returns 'Bin_A', 'Bin_B', or 'Fail'.
+    """
+    worst = "Bin_A"
+
+    for mode in ("VIS", "IR"):
+        for field in ("01F", "03F", "06F", "08F"):
+            # 1. SFR Absolute
+            abs_cols = _get_abs_columns_for_part(mode, field, part)
+            bin_a_ll, bin_b_ll, ul = SFR_ABS_SPEC[mode][field]
+            result = _check_spec(row, abs_cols, bin_a_ll, bin_b_ll, ul)
+            if result == "Fail":
+                return "Fail"
+            if result == "Bin_B":
+                worst = "Bin_B"
+
+            # 2. SFR_drop
+            drop_cols = _get_drop_columns_for_part(mode, field, part)
+            drop_a, drop_b, drop_ul = SFR_DROP_SPEC[mode]
+            result = _check_spec(row, drop_cols, drop_a, drop_b, drop_ul)
+            if result == "Fail":
+                return "Fail"
+            if result == "Bin_B":
+                worst = "Bin_B"
+
+            # 3. SFR_avg_drop
+            avg_drop_cols = _get_avg_drop_columns_for_part(mode, field, part)
+            avg_a, avg_b, avg_ul = SFR_AVG_DROP_SPEC[mode]
+            result = _check_spec(row, avg_drop_cols, avg_a, avg_b, avg_ul)
+            if result == "Fail":
+                return "Fail"
+            if result == "Bin_B":
+                worst = "Bin_B"
+
+    return worst
+
+
+def compute_bin_grades(df: pd.DataFrame) -> pd.DataFrame:
+    """Add BinGrade column and computed Avg/Min columns to the DataFrame."""
+    if df.empty:
+        df["BinGrade"] = pd.Series(dtype=str)
+        return df
+
+    # Compute Avg and Min_Left/Min_Right columns for each row
+    computed_cols = []
+    for _, row in df.iterrows():
+        part = row.get("Part", "Unknown")
+        row_computed = {}
+        for mode in ("VIS", "IR"):
+            row_computed.update(_compute_avg_cols(row, mode, part))
+        computed_cols.append(row_computed)
+
+    computed_df = pd.DataFrame(computed_cols, index=df.index)
+    # Only add columns that don't already exist
+    for col in computed_df.columns:
+        if col not in df.columns:
+            df[col] = computed_df[col]
+        else:
+            # Fill NaN values with computed values
+            mask = df[col].isna()
+            if mask.any():
+                df.loc[mask, col] = computed_df.loc[mask, col]
+
+    # Grade each row
+    grades = []
+    for idx, row in df.iterrows():
+        part = row.get("Part", "Unknown")
+        grades.append(grade_row(row, part))
+    df["BinGrade"] = grades
+
+    return df
+
+
+# ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
 
@@ -201,6 +499,9 @@ def load_data(
         cutoff = pd.Timestamp.now(tz="Asia/Taipei") - pd.Timedelta(days=days)
         df = df[df["Time"] >= cutoff]
 
+    # Compute BinA/BinB/Fail grades
+    df = compute_bin_grades(df)
+
     return df
 
 
@@ -223,7 +524,7 @@ def _embed_chart_data(df: pd.DataFrame) -> str:
     for group in ROI_DEV_GROUPS.values():
         all_cols.update(group.values())
 
-    meta = ["TestResult", "TestFailItem"]
+    meta = ["TestResult", "TestFailItem", "BinGrade"]
     keep = (
         ["Date", "Part"]
         + [m for m in meta if m in df.columns]
@@ -266,6 +567,7 @@ def build_part_section(df: pd.DataFrame, part: str) -> str:
         <h2 style="border-left:5px solid {color}; padding-left:12px;">{part}</h2>
         <div id="summary-online-{part}"></div>
         <div class="chart-container">{_placeholder(f"chart-daily-yield-online-{part}")}</div>
+        <div class="chart-container">{_placeholder(f"chart-bin-yield-online-{part}")}</div>
         {sfr_trend_divs}
         {sfr_box_divs}
         {roi_box_divs}
@@ -291,6 +593,7 @@ def build_audit_part_section(part: str) -> str:
         <h3 style="border-left:4px solid {color}; padding-left:10px;">{part} — Audit</h3>
         <div id="summary-audit-{part}"></div>
         <div class="chart-container">{_placeholder(f"chart-daily-yield-audit-{part}")}</div>
+        <div class="chart-container">{_placeholder(f"chart-bin-yield-audit-{part}")}</div>
         {sfr_trend_divs}
         {sfr_box_divs}
     </div>"""
@@ -306,6 +609,7 @@ def build_audit_section(has_audit: bool) -> str:
     <div class="part-section" id="audit">
         <h2 style="border-left:5px solid #e74c3c; padding-left:12px;">Audit SFR Trend</h2>
         <div class="chart-container">{_placeholder("chart-yield-overlay-audit")}</div>
+        <div class="chart-container">{_placeholder("chart-bin-yield-overlay-audit")}</div>
         {parts_html}
     </div>"""
 
@@ -440,6 +744,9 @@ def build_report(
     <h2>Yield Comparison — All Parts</h2>
     <div class="chart-container">{_placeholder("chart-yield-overlay-online")}</div>
 
+    <h2>Bin Yield Comparison — All Parts</h2>
+    <div class="chart-container">{_placeholder("chart-bin-yield-overlay-online")}</div>
+
     <h2>SFR Comparison by Part — VIS 25cm</h2>
     <div class="chart-container">{_placeholder("chart-sfr-comparison-online")}</div>
 </div>
@@ -462,6 +769,7 @@ const SFR_DEV_GROUPS = {sfr_dev_groups_json};
 const ROI_DEV_GROUPS = {roi_dev_groups_json};
 const PART_COLORS = {part_colors_json};
 const PARTS = {parts_json};
+const BIN_COLORS = {{'Bin_A': '#27ae60', 'Bin_B': '#f39c12', 'Fail': '#e74c3c'}};
 
 function filterByDate(data, start, end) {{
     return data.filter(function(r) {{
@@ -480,7 +788,7 @@ function groupByDate(data) {{
     return {{ dates: dates, groups: groups }};
 }}
 
-/* ---- Summary cards ---- */
+/* ---- Summary cards (updated with Bin info) ---- */
 function renderSummary(data, part, source) {{
     var divId = 'summary-' + source + '-' + part;
     var el = document.getElementById(divId);
@@ -497,12 +805,25 @@ function renderSummary(data, part, source) {{
     var uniqueSN = Object.keys(sns).length || total;
     var color = PART_COLORS[part] || '#3498db';
     var yieldColor = yieldPct >= 95 ? '#2ecc71' : yieldPct >= 90 ? '#e67e22' : '#e74c3c';
+
+    /* Bin counts */
+    var binA = data.filter(function(r) {{ return r.BinGrade === 'Bin_A'; }}).length;
+    var binB = data.filter(function(r) {{ return r.BinGrade === 'Bin_B'; }}).length;
+    var binFail = data.filter(function(r) {{ return r.BinGrade === 'Fail'; }}).length;
+    var binAYield = total > 0 ? (binA / total * 100) : 0;
+    var binBYield = total > 0 ? (binB / total * 100) : 0;
+    var binABYield = total > 0 ? ((binA + binB) / total * 100) : 0;
+    var binABColor = binABYield >= 95 ? '#2ecc71' : binABYield >= 90 ? '#e67e22' : '#e74c3c';
+
     el.innerHTML = '<div class="summary-grid">' +
         '<div class="card" style="border-top:4px solid ' + color + '"><div class="card-title">Total — ' + part + '</div><div class="card-value">' + total.toLocaleString() + '</div></div>' +
         '<div class="card"><div class="card-title">Unique S/N</div><div class="card-value">' + uniqueSN.toLocaleString() + '</div></div>' +
         '<div class="card"><div class="card-title">Pass</div><div class="card-value" style="color:#2ecc71">' + passed.toLocaleString() + '</div></div>' +
         '<div class="card"><div class="card-title">Fail</div><div class="card-value" style="color:#e74c3c">' + failed.toLocaleString() + '</div></div>' +
         '<div class="card"><div class="card-title">Yield</div><div class="card-value" style="color:' + yieldColor + '">' + yieldPct.toFixed(1) + '%</div></div>' +
+        '<div class="card" style="border-top:4px solid #27ae60"><div class="card-title">Bin_A</div><div class="card-value" style="color:#27ae60">' + binA.toLocaleString() + ' (' + binAYield.toFixed(1) + '%)</div></div>' +
+        '<div class="card" style="border-top:4px solid #f39c12"><div class="card-title">Bin_B</div><div class="card-value" style="color:#f39c12">' + binB.toLocaleString() + ' (' + binBYield.toFixed(1) + '%)</div></div>' +
+        '<div class="card" style="border-top:4px solid #2980b9"><div class="card-title">Bin_A+B Yield</div><div class="card-value" style="color:' + binABColor + '">' + binABYield.toFixed(1) + '%</div></div>' +
         '<div class="card"><div class="card-title">Date Range</div><div class="card-value" style="font-size:1.1em">' + dateMin + ' &rarr; ' + dateMax + '</div></div>' +
         '</div>';
 }}
@@ -542,6 +863,52 @@ function renderYieldOverlay(data, divId) {{
     }});
 }}
 
+/* ---- Bin Yield Overlay (all parts, BinA+B yield) ---- */
+function renderBinYieldOverlay(data, divId) {{
+    var el = document.getElementById(divId);
+    if (!el) return;
+    var traces = [];
+    PARTS.forEach(function(part) {{
+        var pd = data.filter(function(r) {{ return r.Part === part; }});
+        if (!pd.length) return;
+        var g = groupByDate(pd);
+        var binAYields = g.dates.map(function(d) {{
+            var rows = g.groups[d];
+            var binA = rows.filter(function(r) {{ return r.BinGrade === 'Bin_A'; }}).length;
+            return rows.length > 0 ? (binA / rows.length * 100) : 0;
+        }});
+        var binABYields = g.dates.map(function(d) {{
+            var rows = g.groups[d];
+            var binAB = rows.filter(function(r) {{ return r.BinGrade === 'Bin_A' || r.BinGrade === 'Bin_B'; }}).length;
+            return rows.length > 0 ? (binAB / rows.length * 100) : 0;
+        }});
+        traces.push({{
+            type: 'scatter', mode: 'lines+markers',
+            x: g.dates, y: binABYields, name: part + ' (A+B)',
+            line: {{color: PART_COLORS[part], width: 2.5}},
+            marker: {{size: 7}}
+        }});
+        traces.push({{
+            type: 'scatter', mode: 'lines+markers',
+            x: g.dates, y: binAYields, name: part + ' (A only)',
+            line: {{color: PART_COLORS[part], width: 1.5, dash: 'dot'}},
+            marker: {{size: 5}}, opacity: 0.7
+        }});
+    }});
+    if (!traces.length) return;
+    traces.push({{
+        type: 'scatter', mode: 'lines', x: traces[0].x,
+        y: traces[0].x.map(function() {{ return 95; }}),
+        name: '95% target', line: {{dash: 'dash', color: 'grey', width: 2}},
+        showlegend: true
+    }});
+    Plotly.react(divId, traces, {{
+        title: 'Bin Yield Comparison — All Parts (Bin_A+B vs Bin_A)',
+        xaxis: {{title: 'Date'}}, yaxis: {{title: 'Yield %', range: [0, 105]}},
+        height: 400, margin: {{l: 50, r: 50, t: 60, b: 50}}
+    }});
+}}
+
 /* ---- Daily Yield per part (bar + line, dual y-axis) ---- */
 function renderDailyYield(data, part, source) {{
     var divId = 'chart-daily-yield-' + source + '-' + part;
@@ -574,6 +941,54 @@ function renderDailyYield(data, part, source) {{
         margin: {{l: 50, r: 50, t: 60, b: 50}},
         yaxis: {{title: 'Count'}},
         yaxis2: {{title: 'Yield %', range: [0, 105], overlaying: 'y', side: 'right'}}
+    }});
+}}
+
+/* ---- BinA / BinB / Fail Yield Trend per part (stacked bar + line) ---- */
+function renderBinYieldTrend(data, part, source) {{
+    var divId = 'chart-bin-yield-' + source + '-' + part;
+    var el = document.getElementById(divId);
+    if (!el) return;
+    var g = groupByDate(data);
+    var binACounts = [], binBCounts = [], failCounts = [];
+    var binAYields = [], binABYields = [];
+    g.dates.forEach(function(d) {{
+        var rows = g.groups[d];
+        var t = rows.length;
+        var a = rows.filter(function(r) {{ return r.BinGrade === 'Bin_A'; }}).length;
+        var b = rows.filter(function(r) {{ return r.BinGrade === 'Bin_B'; }}).length;
+        var f = rows.filter(function(r) {{ return r.BinGrade === 'Fail'; }}).length;
+        binACounts.push(a);
+        binBCounts.push(b);
+        failCounts.push(f);
+        binAYields.push(t > 0 ? (a / t * 100) : 0);
+        binABYields.push(t > 0 ? ((a + b) / t * 100) : 0);
+    }});
+    var traces = [
+        {{ type: 'bar', x: g.dates, y: binACounts, name: 'Bin_A',
+          marker: {{color: BIN_COLORS['Bin_A']}}, yaxis: 'y' }},
+        {{ type: 'bar', x: g.dates, y: binBCounts, name: 'Bin_B',
+          marker: {{color: BIN_COLORS['Bin_B']}}, yaxis: 'y' }},
+        {{ type: 'bar', x: g.dates, y: failCounts, name: 'Fail',
+          marker: {{color: BIN_COLORS['Fail']}}, yaxis: 'y' }},
+        {{ type: 'scatter', mode: 'lines+markers', x: g.dates, y: binABYields,
+          name: 'Bin_A+B Yield %', line: {{color: '#2980b9', width: 3}},
+          marker: {{size: 8}}, yaxis: 'y2' }},
+        {{ type: 'scatter', mode: 'lines+markers', x: g.dates, y: binAYields,
+          name: 'Bin_A Yield %', line: {{color: '#27ae60', width: 2, dash: 'dot'}},
+          marker: {{size: 6}}, yaxis: 'y2' }},
+        {{ type: 'scatter', mode: 'lines', x: g.dates,
+          y: g.dates.map(function() {{ return 95; }}),
+          name: '95% target', line: {{dash: 'dash', color: 'grey', width: 2}},
+          showlegend: true, yaxis: 'y2' }}
+    ];
+    Plotly.react(divId, traces, {{
+        title: 'Bin_A / Bin_B / Fail Yield Trend — ' + part,
+        barmode: 'stack', height: 400,
+        margin: {{l: 50, r: 50, t: 60, b: 50}},
+        yaxis: {{title: 'Count'}},
+        yaxis2: {{title: 'Yield %', range: [0, 105], overlaying: 'y', side: 'right'}},
+        legend: {{orientation: 'h', y: -0.15}}
     }});
 }}
 
@@ -856,6 +1271,10 @@ function renderAllCharts(source, data) {{
     var overlayId = 'chart-yield-overlay-' + source;
     if (document.getElementById(overlayId)) renderYieldOverlay(data, overlayId);
 
+    /* Bin Yield overlay */
+    var binOverlayId = 'chart-bin-yield-overlay-' + source;
+    if (document.getElementById(binOverlayId)) renderBinYieldOverlay(data, binOverlayId);
+
     /* SFR Comparison */
     if (source === 'online') {{
         var el = document.getElementById('chart-sfr-comparison-online');
@@ -871,6 +1290,9 @@ function renderAllCharts(source, data) {{
 
         /* Daily yield */
         renderDailyYield(pd, part, source);
+
+        /* Bin yield trend */
+        renderBinYieldTrend(pd, part, source);
 
         /* SFR Min Trend */
         renderSfrTrend(pd, part, source);
@@ -975,7 +1397,22 @@ def main() -> None:
         cnt = (full_audit_df["Part"] == part).sum() if not full_audit_df.empty else 0
         print(f"  {part} (audit): {cnt} rows")
 
-    print("Building report …")
+    # Print Bin grade summary
+    if not full_df.empty and "BinGrade" in full_df.columns:
+        print("\nBin Grade Summary (ONLINE):")
+        for part in SLOT_MAP.values():
+            pdf = full_df[full_df["Part"] == part]
+            if pdf.empty:
+                continue
+            total = len(pdf)
+            bin_a = (pdf["BinGrade"] == "Bin_A").sum()
+            bin_b = (pdf["BinGrade"] == "Bin_B").sum()
+            fail = (pdf["BinGrade"] == "Fail").sum()
+            print(f"  {part}: Bin_A={bin_a} ({bin_a/total*100:.1f}%), "
+                  f"Bin_B={bin_b} ({bin_b/total*100:.1f}%), "
+                  f"Fail={fail} ({fail/total*100:.1f}%)")
+
+    print("\nBuilding report …")
     html = build_report(full_df, full_audit_df)
 
     output = Path(args.output)
