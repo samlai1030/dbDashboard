@@ -3,6 +3,10 @@
     "remote": "samlai@meta.com",
     "folder_url": "https://drive.google.com/drive/folders/1fYqF9P6F2-TzeG06cp-P7qrEE8Y0QMvJ"
   },
+  "cache": {
+    "remote": "manus_google_drive",
+    "folder_id": "1Nwduj0slLJJf2V6gp7ZXKH2n7RTzTP7e"
+  },
   "output_folder": "./output_loma_daily",
   "filters": {
     "dataset_keyword": "Summary_LanSi_Loma_CW_1_01_ONLINE",

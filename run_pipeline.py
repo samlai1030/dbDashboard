@@ -6,6 +6,7 @@ Usage:
     python run_pipeline.py --config pre_EVT2 --dry-run # preview all steps
     python run_pipeline.py --skip-sync                  # skip gdrive, run local steps only
     python run_pipeline.py --skip-publish               # skip uploading reports to GDrive
+    python run_pipeline.py --from-cache                 # restore DB from GDrive cache, skip gsync
 """
 
 from __future__ import annotations
@@ -134,17 +135,49 @@ def main() -> None:
     parser.add_argument(
         "--check-only", action="store_true", help="Only check gsync, no download"
     )
+    parser.add_argument(
+        "--from-cache",
+        action="store_true",
+        help="Restore DB + datasets from GDrive cache instead of full gsync. "
+             "Automatically saves back to cache after pipeline completes.",
+    )
     args = parser.parse_args()
+
+    # --from-cache implies --skip-sync
+    if args.from_cache:
+        args.skip_sync = True
 
     # Propagate active config to child processes via env var
     os.environ["APP_CONFIG"] = cfg.config_name
     cfg.ensure_folders()
     print(f"Config: {cfg.config_name}")
-    print(f"Output: {cfg.output_folder}\n")
+    print(f"Output: {cfg.output_folder}")
+    if cfg.has_cache:
+        print(f"Cache:  {cfg.cache_remote} (folder {cfg.cache_folder_id})")
+    print()
 
     python = sys.executable
 
-    # Step 1: gsync — use config paths as defaults
+    # ------------------------------------------------------------------
+    # Step 0 (optional): Restore from GDrive cache
+    # ------------------------------------------------------------------
+    cache = None
+    if args.from_cache:
+        if not cfg.has_cache:
+            print("Error: --from-cache requires a 'cache' section in config JSON.")
+            sys.exit(1)
+
+        from cache_ops import CacheOps
+        cache = CacheOps(cfg)
+        restored = cache.restore()
+        if not restored:
+            print("Error: cache restore failed — cache may be empty.")
+            print("Run the full pipeline first (without --from-cache) to populate the cache.")
+            sys.exit(1)
+
+    # ------------------------------------------------------------------
+    # Step 1: gsync
+    # ------------------------------------------------------------------
     if not args.skip_sync:
         gsync_cmd = [python, str(PROJECT_DIR / "gsync.py")]
         if args.profile:
@@ -166,28 +199,37 @@ def main() -> None:
             return
 
     # Step 2: move_to_data_folder
-    move_data_cmd = [python, str(PROJECT_DIR / "move_to_data_folder.py")]
-    if args.dry_run:
-        move_data_cmd.append("--dry-run")
+    if not args.from_cache:
+        move_data_cmd = [python, str(PROJECT_DIR / "move_to_data_folder.py")]
+        if args.dry_run:
+            move_data_cmd.append("--dry-run")
 
-    if not run_step("move_to_data_folder", move_data_cmd):
-        sys.exit(1)
+        if not run_step("move_to_data_folder", move_data_cmd):
+            sys.exit(1)
+    else:
+        print("\n[CACHE] Skipping move_to_data_folder (restored from cache)")
 
     # Step 3: move_to_datasets
-    move_ds_cmd = [python, str(PROJECT_DIR / "move_to_datasets.py")]
-    if args.dry_run:
-        move_ds_cmd.append("--dry-run")
+    if not args.from_cache:
+        move_ds_cmd = [python, str(PROJECT_DIR / "move_to_datasets.py")]
+        if args.dry_run:
+            move_ds_cmd.append("--dry-run")
 
-    if not run_step("move_to_datasets", move_ds_cmd):
-        sys.exit(1)
+        if not run_step("move_to_datasets", move_ds_cmd):
+            sys.exit(1)
+    else:
+        print("[CACHE] Skipping move_to_datasets (restored from cache)")
 
     # Step 4: move_audit_to_datasets
-    move_audit_cmd = [python, str(PROJECT_DIR / "move_audit_to_datasets.py")]
-    if args.dry_run:
-        move_audit_cmd.append("--dry-run")
+    if not args.from_cache:
+        move_audit_cmd = [python, str(PROJECT_DIR / "move_audit_to_datasets.py")]
+        if args.dry_run:
+            move_audit_cmd.append("--dry-run")
 
-    if not run_step("move_audit_to_datasets", move_audit_cmd):
-        sys.exit(1)
+        if not run_step("move_audit_to_datasets", move_audit_cmd):
+            sys.exit(1)
+    else:
+        print("[CACHE] Skipping move_audit_to_datasets (restored from cache)")
 
     # Step 5: db_update
     db_cmd = [python, str(PROJECT_DIR / "db_update.py")]
@@ -206,12 +248,15 @@ def main() -> None:
         sys.exit(1)
 
     # Step 7: copy_images
-    copy_img_cmd = [python, str(PROJECT_DIR / "copy_images.py")]
-    if args.dry_run:
-        copy_img_cmd.append("--dry-run")
+    if not args.from_cache:
+        copy_img_cmd = [python, str(PROJECT_DIR / "copy_images.py")]
+        if args.dry_run:
+            copy_img_cmd.append("--dry-run")
 
-    if not run_step("copy_images", copy_img_cmd):
-        sys.exit(1)
+        if not run_step("copy_images", copy_img_cmd):
+            sys.exit(1)
+    else:
+        print("[CACHE] Skipping copy_images (no local data_folder)")
 
     # Step 8: sfr_report (skip on dry-run — needs real data in db)
     if not args.dry_run:
@@ -229,7 +274,9 @@ def main() -> None:
     else:
         print("[DRY RUN] Skipping db_viewer (needs data in db)")
 
+    # ------------------------------------------------------------------
     # Step 10: publish — convert HTML reports to PDF and upload to GDrive
+    # ------------------------------------------------------------------
     if not args.dry_run and not args.skip_publish:
         print(f"\n{'='*60}")
         print("  Step: publish_reports (HTML → PDF + upload)")
@@ -255,6 +302,17 @@ def main() -> None:
         print("\n[SKIP] publish_reports (--skip-publish)")
     else:
         print("\n[DRY RUN] Skipping publish_reports")
+
+    # ------------------------------------------------------------------
+    # Step 11 (optional): Save back to GDrive cache
+    # ------------------------------------------------------------------
+    if args.from_cache and cache and not args.dry_run:
+        cache.save()
+    elif cfg.has_cache and not args.from_cache and not args.dry_run:
+        # Even on full pipeline, save to cache for next --from-cache run
+        from cache_ops import CacheOps
+        cache = CacheOps(cfg)
+        cache.save()
 
     print(f"\n{'='*60}")
     print("  ✓ Pipeline complete")

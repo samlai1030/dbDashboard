@@ -4,6 +4,10 @@
     "folder_url": "https://drive.google.com/drive/folders/1ksLzPBZkPCK0fui6NymeDsT4hmleEMpz",
     "images_folder_id": "1yKXaAEE7LzePXxDtuP02ALz9WkJhl0nV"
   },
+  "cache": {
+    "remote": "manus_google_drive",
+    "folder_id": "1sVbN7AvNw9ZIrUI5pXRwSqAKauC8d-9K"
+  },
   "output_folder": "./output_pre_EVT2",
   "filters": {
     "dataset_keyword": "Summary_LanSi_Loma_CW_1_01_ONLINE",

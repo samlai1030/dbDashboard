@@ -123,6 +123,21 @@ class AppConfig:
     def gdrive_url(self) -> str:
         return self._data["gdrive"]["folder_url"]
 
+    # --- Cache (persistent GDrive storage for DB/datasets/reports) ---
+    @property
+    def cache_remote(self) -> str | None:
+        cache = self._data.get("cache")
+        return cache.get("remote") if cache else None
+
+    @property
+    def cache_folder_id(self) -> str | None:
+        cache = self._data.get("cache")
+        return cache.get("folder_id") if cache else None
+
+    @property
+    def has_cache(self) -> bool:
+        return bool(self.cache_remote and self.cache_folder_id)
+
     # --- Paths (all inside output_folder) ---
     @property
     def sync_folder(self) -> Path:
@@ -195,6 +210,8 @@ class AppConfig:
             f"  Output folder : {self._output}\n"
             f"  GDrive remote : {self.gdrive_remote}\n"
             f"  GDrive URL    : {self.gdrive_url}\n"
+            f"  Cache remote  : {self.cache_remote}\n"
+            f"  Cache folder  : {self.cache_folder_id}\n"
             f"  sync_folder   : {self.sync_folder}\n"
             f"  data_folder   : {self.data_folder}\n"
             f"  datasets      : {self.datasets}\n"
