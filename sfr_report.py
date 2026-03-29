@@ -857,9 +857,9 @@ function renderYieldOverlay(data, divId) {{
         showlegend: true
     }});
     Plotly.react(divId, traces, {{
-        title: 'Daily Yield Comparison — DTC_R vs DTC_L vs STC',
+        title: {{text: 'Daily Yield Comparison — DTC_R vs DTC_L vs STC', font: {{size: 16}}}},
         xaxis: {{title: 'Date'}}, yaxis: {{title: 'Yield %', range: [0, 105]}},
-        height: 400, margin: {{l: 50, r: 50, t: 60, b: 50}}
+        height: 400, margin: {{l: 60, r: 60, t: 80, b: 60}}
     }});
 }}
 
@@ -903,9 +903,9 @@ function renderBinYieldOverlay(data, divId) {{
         showlegend: true
     }});
     Plotly.react(divId, traces, {{
-        title: 'Bin Yield Comparison — All Parts (Bin_A+B vs Bin_A)',
+        title: {{text: 'Bin Yield Comparison — All Parts (Bin_A+B vs Bin_A)', font: {{size: 16}}}},
         xaxis: {{title: 'Date'}}, yaxis: {{title: 'Yield %', range: [0, 105]}},
-        height: 400, margin: {{l: 50, r: 50, t: 60, b: 50}}
+        height: 400, margin: {{l: 60, r: 60, t: 80, b: 60}}
     }});
 }}
 
@@ -916,13 +916,18 @@ function renderDailyYield(data, part, source) {{
     if (!el) return;
     var g = groupByDate(data);
     var totals = [], fails = [], yields = [];
+    var binABYields = [], binBYields = [];
     g.dates.forEach(function(d) {{
         var rows = g.groups[d];
         var t = rows.length;
         var p = rows.filter(function(r) {{ return r.TestResult === 'PASS'; }}).length;
+        var binA = rows.filter(function(r) {{ return r.BinGrade === 'Bin_A'; }}).length;
+        var binB = rows.filter(function(r) {{ return r.BinGrade === 'Bin_B'; }}).length;
         totals.push(t);
         fails.push(t - p);
         yields.push(t > 0 ? (p / t * 100) : 0);
+        binABYields.push(t > 0 ? ((binA + binB) / t * 100) : 0);
+        binBYields.push(t > 0 ? (binB / t * 100) : 0);
     }});
     var color = PART_COLORS[part] || '#3498db';
     var traces = [
@@ -930,17 +935,22 @@ function renderDailyYield(data, part, source) {{
         {{ type: 'bar', x: g.dates, y: fails, name: 'Fail', marker: {{color: '#e74c3c'}}, opacity: 0.8, yaxis: 'y' }},
         {{ type: 'scatter', mode: 'lines+markers', x: g.dates, y: yields, name: 'Yield %',
           line: {{color: '#2ecc71', width: 3}}, marker: {{size: 8}}, yaxis: 'y2' }},
+        {{ type: 'scatter', mode: 'lines+markers', x: g.dates, y: binABYields, name: 'Bin_A+B Yield %',
+          line: {{color: '#2980b9', width: 2.5}}, marker: {{size: 7}}, yaxis: 'y2' }},
+        {{ type: 'scatter', mode: 'lines+markers', x: g.dates, y: binBYields, name: 'Bin_B Yield %',
+          line: {{color: '#f39c12', width: 2, dash: 'dot'}}, marker: {{size: 5}}, yaxis: 'y2', opacity: 0.8 }},
         {{ type: 'scatter', mode: 'lines', x: g.dates,
           y: g.dates.map(function() {{ return 95; }}),
           name: '95% target', line: {{dash: 'dash', color: 'orange', width: 2}},
           showlegend: true, yaxis: 'y2' }}
     ];
     Plotly.react(divId, traces, {{
-        title: 'Daily Yield — ' + part,
-        barmode: 'overlay', height: 350,
-        margin: {{l: 50, r: 50, t: 60, b: 50}},
+        title: {{text: 'Trend of Input and Yield — ' + part, font: {{size: 16}}}},
+        barmode: 'overlay', height: 400,
+        margin: {{l: 60, r: 60, t: 80, b: 60}},
         yaxis: {{title: 'Count'}},
-        yaxis2: {{title: 'Yield %', range: [0, 105], overlaying: 'y', side: 'right'}}
+        yaxis2: {{title: 'Yield %', range: [0, 105], overlaying: 'y', side: 'right'}},
+        legend: {{orientation: 'h', y: -0.18}}
     }});
 }}
 
@@ -983,12 +993,12 @@ function renderBinYieldTrend(data, part, source) {{
           showlegend: true, yaxis: 'y2' }}
     ];
     Plotly.react(divId, traces, {{
-        title: 'Bin_A / Bin_B / Fail Yield Trend — ' + part,
-        barmode: 'stack', height: 400,
-        margin: {{l: 50, r: 50, t: 60, b: 50}},
+        title: {{text: 'Bin_A / Bin_B / Fail Yield Trend — ' + part, font: {{size: 16}}}},
+        barmode: 'stack', height: 420,
+        margin: {{l: 60, r: 60, t: 80, b: 60}},
         yaxis: {{title: 'Count'}},
         yaxis2: {{title: 'Yield %', range: [0, 105], overlaying: 'y', side: 'right'}},
-        legend: {{orientation: 'h', y: -0.15}}
+        legend: {{orientation: 'h', y: -0.18}}
     }});
 }}
 
@@ -1021,9 +1031,9 @@ function renderSfrTrend(data, part, source) {{
         }});
         if (!traces.length) return;
         Plotly.react(divId, traces, {{
-            title: 'SFR Min Trend — ' + groupName + ' — ' + part,
+            title: {{text: 'Trend of SFR_min by Field — ' + groupName + ' — ' + part, font: {{size: 15}}}},
             xaxis: {{title: 'Date'}}, yaxis: {{title: 'SFR (Ny/4)', range: [0, 1]}},
-            height: 320, margin: {{l: 50, r: 50, t: 60, b: 50}}
+            height: 350, margin: {{l: 60, r: 60, t: 80, b: 60}}
         }});
     }});
 }}
@@ -1071,9 +1081,9 @@ function renderSfrDevTrend(data, part, source) {{
         }});
         if (!traces.length) return;
         Plotly.react(divId, traces, {{
-            title: 'Min SFR Dev Trend by Field — ' + groupName + ' — ' + part,
+            title: {{text: 'Trend of SFR_dev_min by Field — ' + groupName + ' — ' + part, font: {{size: 15}}}},
             xaxis: {{title: 'Date'}}, yaxis: {{title: 'Min SFR Dev'}},
-            height: 400, margin: {{l: 50, r: 50, t: 60, b: 50}},
+            height: 400, margin: {{l: 60, r: 60, t: 80, b: 60}},
             shapes: [{{type:'line', yref:'y', y0:0, y1:0, xref:'paper', x0:0, x1:1,
                        line:{{dash:'dash', color:'grey', width:1}}, opacity:0.6}}]
         }});
@@ -1104,9 +1114,9 @@ function renderSfrComparison(data, divId) {{
     }});
     if (!traces.length) return;
     Plotly.react(divId, traces, {{
-        title: 'SFR Comparison by Part — VIS 25cm',
+        title: {{text: 'SFR Comparison by Part — VIS 25cm', font: {{size: 16}}}},
         boxmode: 'group', height: 400,
-        margin: {{l: 50, r: 50, t: 60, b: 50}},
+        margin: {{l: 60, r: 60, t: 80, b: 60}},
         yaxis: {{range: [0, 1]}}
     }});
 }}
@@ -1123,8 +1133,8 @@ function renderSfrBox(data, part, groupName, cols, divId) {{
     }});
     if (!traces.length) return;
     Plotly.react(divId, traces, {{
-        title: 'SFR Distribution — ' + groupName + ' — ' + part,
-        height: 320, margin: {{l: 50, r: 50, t: 60, b: 50}},
+        title: {{text: 'Boxplot of SFR_min by Field — ' + groupName + ' — ' + part, font: {{size: 15}}}},
+        height: 350, margin: {{l: 60, r: 60, t: 80, b: 60}},
         yaxis: {{range: [0, 1]}}, showlegend: false
     }});
 }}
@@ -1167,8 +1177,8 @@ function renderRoiBox(data, part, groupName, cols, divId) {{
     }});
     if (!traces.length) return;
     var layout = {{
-        title: 'Per-ROI SFR — ' + groupName + ' — ' + part,
-        height: 400, margin: {{l: 50, r: 50, t: 60, b: 50}},
+        title: {{text: 'Boxplot of SFR by ROIs — ' + groupName + ' — ' + part, font: {{size: 15}}}},
+        height: 420, margin: {{l: 60, r: 60, t: 80, b: 80}},
         yaxis: {{range: [0, 1]}}, showlegend: false,
         xaxis: {{tickangle: -45}}
     }};
@@ -1189,8 +1199,8 @@ function renderDevRoi(data, part, groupName, cols, divId) {{
     }});
     if (!traces.length) return;
     var layout = {{
-        title: 'SFR Deviation by ROI — ' + groupName + ' — ' + part,
-        height: 400, margin: {{l: 50, r: 50, t: 60, b: 50}},
+        title: {{text: 'Boxplot of SFR_dev by ROIs — ' + groupName + ' — ' + part, font: {{size: 15}}}},
+        height: 420, margin: {{l: 60, r: 60, t: 80, b: 80}},
         showlegend: false, xaxis: {{tickangle: -45}},
         yaxis: {{title: 'SFR Dev'}},
         shapes: [{{
