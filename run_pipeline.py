@@ -141,6 +141,10 @@ def main() -> None:
         help="Restore DB + datasets from GDrive cache instead of full gsync. "
              "Automatically saves back to cache after pipeline completes.",
     )
+    parser.add_argument(
+        "--skip-ghpages", action="store_true",
+        help="Skip publishing to GitHub Pages",
+    )
     args = parser.parse_args()
 
     # --from-cache implies --skip-sync
@@ -304,7 +308,26 @@ def main() -> None:
         print("\n[DRY RUN] Skipping publish_reports")
 
     # ------------------------------------------------------------------
-    # Step 11 (optional): Save back to GDrive cache
+    # Step 11: publish to GitHub Pages
+    # ------------------------------------------------------------------
+    if not args.dry_run and not args.skip_ghpages:
+        print(f"\n{'='*60}")
+        print("  Step: publish_ghpages (update GitHub Pages)")
+        print(f"{'='*60}\n")
+
+        try:
+            _publish_ghpages(cfg)
+            print("\n\u2713 publish_ghpages done")
+        except Exception as e:
+            print(f"\n\u2717 publish_ghpages failed: {e}")
+            # Non-fatal: don't exit, just warn
+    elif args.skip_ghpages:
+        print("\n[SKIP] publish_ghpages (--skip-ghpages)")
+    else:
+        print("\n[DRY RUN] Skipping publish_ghpages")
+
+    # ------------------------------------------------------------------
+    # Step 12 (optional): Save back to GDrive cache
     # ------------------------------------------------------------------
     if args.from_cache and cache and not args.dry_run:
         cache.save()
@@ -317,6 +340,85 @@ def main() -> None:
     print(f"\n{'='*60}")
     print("  ✓ Pipeline complete")
     print(f"{'='*60}\n")
+
+
+def _publish_ghpages(cfg) -> None:
+    """Copy latest HTML reports to gh-pages branch and push to GitHub."""
+    import shutil as _shutil
+
+    repo_dir = PROJECT_DIR
+    output = cfg.output_folder
+
+    sfr_html = Path(output) / "sfr_report.html"
+    dbv_html = Path(output) / "db_viewer.html"
+    idx_html = Path(output) / "index.html"
+
+    if not sfr_html.exists():
+        print("  \u26a0 sfr_report.html not found, skipping gh-pages publish")
+        return
+
+    # Save current branch
+    result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True, cwd=repo_dir,
+    )
+    original_branch = result.stdout.strip()
+
+    try:
+        # Switch to gh-pages
+        subprocess.run(
+            ["git", "checkout", "gh-pages"],
+            check=True, capture_output=True, text=True, cwd=repo_dir,
+        )
+
+        # Copy report files to repo root
+        _shutil.copy2(str(sfr_html), str(repo_dir / "sfr_report.html"))
+        if dbv_html.exists():
+            _shutil.copy2(str(dbv_html), str(repo_dir / "db_viewer.html"))
+        if idx_html.exists():
+            _shutil.copy2(str(idx_html), str(repo_dir / "index.html"))
+
+        # Stage only the HTML files
+        files_to_add = ["sfr_report.html"]
+        if dbv_html.exists():
+            files_to_add.append("db_viewer.html")
+        if idx_html.exists():
+            files_to_add.append("index.html")
+
+        subprocess.run(
+            ["git", "add"] + files_to_add,
+            check=True, capture_output=True, text=True, cwd=repo_dir,
+        )
+
+        # Check if there are changes to commit
+        diff_result = subprocess.run(
+            ["git", "diff", "--cached", "--quiet"],
+            capture_output=True, text=True, cwd=repo_dir,
+        )
+
+        if diff_result.returncode != 0:
+            # There are changes
+            from datetime import datetime
+            today = datetime.now().strftime("%Y-%m-%d")
+            subprocess.run(
+                ["git", "commit", "-m", f"Update reports ({today})"],
+                check=True, capture_output=True, text=True, cwd=repo_dir,
+            )
+            print("  Pushing to gh-pages ...")
+            subprocess.run(
+                ["git", "push", "origin", "gh-pages"],
+                check=True, capture_output=True, text=True, cwd=repo_dir,
+            )
+            print("  \u2713 GitHub Pages updated")
+        else:
+            print("  No changes to publish")
+
+    finally:
+        # Always switch back to original branch
+        subprocess.run(
+            ["git", "checkout", original_branch],
+            check=True, capture_output=True, text=True, cwd=repo_dir,
+        )
 
 
 if __name__ == "__main__":
