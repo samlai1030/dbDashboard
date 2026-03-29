@@ -710,7 +710,7 @@ def build_report(
     .card-value {{ font-size: 1.8em; font-weight: bold; color: #2c3e50; margin-top: 4px; }}
     .chart-container {{ background: white; border-radius: 10px; padding: 12px;
                         margin: 8px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }}
-    .chart-container:empty, .chart-container:has(div:empty) {{ display: none; }}
+    .chart-container:empty {{ display: none; }}
     .stats-table {{ border-collapse: collapse; width: 100%; background: white;
                     border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }}
     .stats-table th {{ background: #3498db; color: white; padding: 8px 12px; text-align: left; font-size: 0.85em; }}
@@ -1342,7 +1342,7 @@ function onDateChange() {{
     var auF = filterByDate(AUDIT_DATA, start, end);
     renderAllCharts('online', onF);
     renderAllCharts('audit', auF);
-    hideEmptyCharts();
+    setTimeout(hideEmptyCharts, 500);
     document.getElementById('date-status').textContent =
         'Showing ' + onF.length + ' online + ' + auF.length + ' audit rows';
 }}
@@ -1355,12 +1355,12 @@ function resetDates() {{
     onDateChange();
 }}
 
-/* ---- Hide empty chart containers ---- */
+/* ---- Hide empty chart containers (after Plotly has rendered) ---- */
 function hideEmptyCharts() {{
     document.querySelectorAll('.chart-container').forEach(function(el) {{
-        var inner = el.querySelector('div');
-        /* Hide if inner placeholder div is empty (no Plotly content) */
-        if (inner && inner.children.length === 0 && !inner.textContent.trim()) {{
+        /* Plotly adds .js-plotly-plot or svg elements when it renders a chart */
+        var hasPlotly = el.querySelector('.js-plotly-plot') || el.querySelector('svg');
+        if (!hasPlotly) {{
             el.style.display = 'none';
         }} else {{
             el.style.display = '';
@@ -1372,7 +1372,8 @@ function hideEmptyCharts() {{
 document.addEventListener('DOMContentLoaded', function() {{
     renderAllCharts('online', ONLINE_DATA);
     renderAllCharts('audit', AUDIT_DATA);
-    hideEmptyCharts();
+    /* Delay hiding to let Plotly finish async rendering */
+    setTimeout(hideEmptyCharts, 500);
     document.getElementById('date-status').textContent =
         'Showing ' + ONLINE_DATA.length + ' online + ' + AUDIT_DATA.length + ' audit rows';
 }});
