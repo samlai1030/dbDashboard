@@ -818,12 +818,10 @@ function renderSummary(data, part, source) {{
 
     el.innerHTML = '<div class="summary-grid">' +
         '<div class="card" style="border-top:4px solid ' + color + '"><div class="card-title">Total — ' + part + '</div><div class="card-value">' + total.toLocaleString() + '</div></div>' +
-        '<div class="card"><div class="card-title">Unique S/N</div><div class="card-value">' + uniqueSN.toLocaleString() + '</div></div>' +
         '<div class="card"><div class="card-title">Pass</div><div class="card-value" style="color:#2ecc71">' + passed.toLocaleString() + '</div></div>' +
         '<div class="card"><div class="card-title">Fail</div><div class="card-value" style="color:#e74c3c">' + failed.toLocaleString() + '</div></div>' +
         '<div class="card"><div class="card-title">Yield</div><div class="card-value" style="color:' + yieldColor + '">' + yieldPct.toFixed(1) + '%</div></div>' +
         '<div class="card" style="border-top:4px solid #27ae60"><div class="card-title">Bin_A</div><div class="card-value" style="color:#27ae60">' + binA.toLocaleString() + ' (' + binAYield.toFixed(1) + '%)</div></div>' +
-        '<div class="card" style="border-top:4px solid #f39c12"><div class="card-title">Bin_B</div><div class="card-value" style="color:#f39c12">' + binB.toLocaleString() + ' (' + binBYield.toFixed(1) + '%)</div></div>' +
         '<div class="card" style="border-top:4px solid #2980b9"><div class="card-title">Bin_A+B Yield</div><div class="card-value" style="color:' + binABColor + '">' + binABYield.toFixed(1) + '%</div></div>' +
         '<div class="card"><div class="card-title">Date Range</div><div class="card-value" style="font-size:1.1em">' + dateMin + ' &rarr; ' + dateMax + '</div></div>' +
         '</div>';
