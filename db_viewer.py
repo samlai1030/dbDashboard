@@ -88,7 +88,7 @@ def _build_image_id_map_from_gdrive(output_folder: Path) -> dict:
 
     for _ in range(50):  # max 50 pages × 1000 = 50k files
         params: dict = {
-            "q": f'"{images_folder_id}" in parents and trashed = false',
+            "q": f'"{images_folder_id}" in parents',
             "fields": "files(id,name),nextPageToken",
             "pageSize": 1000,
         }
@@ -466,8 +466,8 @@ function renderData() {{
                 const fname = val.replace('images/', '');
                 const fileId = IMG_ID_MAP[fname];
                 if (fileId) {{
-                    const imgUrl = `https://drive.google.com/file/d/${{fileId}}/view`;
-                    html += `<td><a class="img-link" href="${{imgUrl}}" target="_blank" title="${{fname}}">&#128247;</a></td>`;
+                    const thumbUrl = `https://lh3.googleusercontent.com/d/${{fileId}}`;
+                    html += `<td><a class="img-link" href="${{thumbUrl}}" target="_blank" title="${{fname}}">&#128247;</a></td>`;
                 }} else {{
                     html += `<td title="${{fname}}" style="color:#94a3b8;">&#128247;</td>`;
                 }}

@@ -9,7 +9,8 @@ Cache folder structure on GDrive:
     ├── data.db              (SQLite database)
     ├── datasets.tar.gz      (compressed datasets + audit_datasets)
     ├── sfr_report.html      (latest report)
-    └── db_viewer.html       (latest viewer)
+    ├── db_viewer.html       (latest viewer)
+    └── image_id_map.json    (GDrive image filename → fileId mapping)
 
 Usage:
     from cache_ops import CacheOps
@@ -176,6 +177,13 @@ class CacheOps:
         else:
             print("  ⚠ datasets.tar.gz not found in cache")
 
+        # 3. Restore image_id_map.json
+        if "image_id_map.json" in index:
+            dest = self.cfg.output_folder / "image_id_map.json"
+            print(f"  Downloading image_id_map.json → {dest}")
+            self._download_file(index["image_id_map.json"], dest)
+            print("  ✓ image_id_map.json restored")
+
         if restored:
             print("\n✓ cache_restore done")
         return restored
@@ -228,6 +236,13 @@ class CacheOps:
             print(f"  Uploading db_viewer.html ({viewer.stat().st_size / 1024 / 1024:.1f} MB) …")
             self._upload_file(viewer, "db_viewer.html", "text/html")
             print("  ✓ db_viewer.html saved")
+
+        # 5. Upload image_id_map.json
+        img_map = self.cfg.output_folder / "image_id_map.json"
+        if img_map.exists():
+            print(f"  Uploading image_id_map.json ({img_map.stat().st_size / 1024:.1f} KB) …")
+            self._upload_file(img_map, "image_id_map.json", "application/json")
+            print("  ✓ image_id_map.json saved")
 
         print("\n✓ cache_save done")
 
