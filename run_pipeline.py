@@ -378,12 +378,22 @@ def _publish_ghpages(cfg) -> None:
         if idx_html.exists():
             _shutil.copy2(str(idx_html), str(repo_dir / "index.html"))
 
+        # Also copy to config-specific subfolder (e.g. pre_EVT2/)
+        config_subdir = repo_dir / cfg.config_name
+        config_subdir.mkdir(parents=True, exist_ok=True)
+        _shutil.copy2(str(sfr_html), str(config_subdir / "sfr_report.html"))
+        if dbv_html.exists():
+            _shutil.copy2(str(dbv_html), str(config_subdir / "db_viewer.html"))
+
         # Stage only the HTML files
         files_to_add = ["sfr_report.html"]
         if dbv_html.exists():
             files_to_add.append("db_viewer.html")
         if idx_html.exists():
             files_to_add.append("index.html")
+        files_to_add.append(f"{cfg.config_name}/sfr_report.html")
+        if dbv_html.exists():
+            files_to_add.append(f"{cfg.config_name}/db_viewer.html")
 
         subprocess.run(
             ["git", "add"] + files_to_add,
