@@ -18,7 +18,7 @@ from app_config import cfg
 DATA_FOLDER = cfg.data_folder
 AUDIT_DATASETS_FOLDER = cfg.audit_datasets
 
-TARGET_KEYWORD = cfg.audit_keyword
+TARGET_KEYWORDS = cfg.audit_keywords
 DATA_EXTENSIONS = cfg.data_extensions
 
 
@@ -32,7 +32,7 @@ def scan_and_copy(src: Path, dst: Path, *, dry_run: bool = False) -> None:
             continue
         if filepath.suffix.lower() not in DATA_EXTENSIONS:
             continue
-        if TARGET_KEYWORD not in filepath.name:
+        if not any(kw in filepath.name for kw in TARGET_KEYWORDS):
             continue
 
         if filepath.name in existing:
@@ -79,7 +79,7 @@ def main() -> None:
         return
 
     print(f"Scanning: {src}")
-    print(f"Keyword:  {TARGET_KEYWORD}")
+    print(f"Keywords: {TARGET_KEYWORDS}")
     print(f"Dest:     {dst}")
     print(f"{'[DRY RUN]' if args.dry_run else ''}\n")
 

@@ -10,8 +10,8 @@
   },
   "output_folder": "./output_pre_EVT2",
   "filters": {
-    "dataset_keyword": "Summary_LanSi_Loma_CW_1_01_ONLINE",
-    "audit_keyword": "Summary_LanSi_Loma_CW_1_01_AuditTest_AUDIT_",
+    "dataset_keyword": ["Summary_LanSi_Loma_CW_1_01_ONLINE", "Summary_LanSi_Loma_CW_DTC-L_1_01_ONLINE", "Summary_LanSi_Loma_CW_DTC-R_1_01_ONLINE"],
+    "audit_keyword": ["Summary_LanSi_Loma_CW_1_01_AuditTest_AUDIT_", "Summary_LanSi_Loma_CW_DTC-L_1_01_AuditTest_AUDIT_", "Summary_LanSi_Loma_CW_DTC-R_1_01_AuditTest_AUDIT_"],
     "data_extensions": [".csv", ".xls", ".xlsx"]
   },
   "slot_map": {

@@ -177,12 +177,26 @@ class AppConfig:
 
     # --- Filters ---
     @property
-    def dataset_keyword(self) -> str:
+    def dataset_keyword(self) -> str | list[str]:
+        """Return keyword(s) for matching online dataset files. May be a string or list."""
         return self._data["filters"]["dataset_keyword"]
 
     @property
-    def audit_keyword(self) -> str:
+    def dataset_keywords(self) -> list[str]:
+        """Always return a list of keywords for matching online dataset files."""
+        kw = self._data["filters"]["dataset_keyword"]
+        return kw if isinstance(kw, list) else [kw]
+
+    @property
+    def audit_keyword(self) -> str | list[str]:
+        """Return keyword(s) for matching audit dataset files. May be a string or list."""
         return self._data["filters"]["audit_keyword"]
+
+    @property
+    def audit_keywords(self) -> list[str]:
+        """Always return a list of keywords for matching audit dataset files."""
+        kw = self._data["filters"]["audit_keyword"]
+        return kw if isinstance(kw, list) else [kw]
 
     @property
     def data_extensions(self) -> set[str]:
