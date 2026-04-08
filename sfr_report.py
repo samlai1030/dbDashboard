@@ -679,7 +679,14 @@ def build_report(
 <head>
 <meta charset="UTF-8">
 <title>SFR Report — Loma CW_1_01</title>
-<script src="https://cdn.plot.ly/plotly-3.1.1.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/3.1.1/plotly.min.js"></script>
+<script>
+if (typeof Plotly === 'undefined') {{
+  var s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/plotly.js-dist@3.1.1/plotly.min.js';
+  document.head.appendChild(s);
+}}
+</script>
 <style>
     body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
            max-width: 1300px; margin: 0 auto; padding: 20px; background: #f5f6fa; }}
