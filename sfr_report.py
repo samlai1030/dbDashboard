@@ -296,14 +296,13 @@ def _get_abs_columns_for_part(mode: str, field: str, part: str) -> list[str]:
         cols = [f"{prefix}_ROI17", f"{prefix}_ROI19"]
         if part == "DTC_L":
             cols += [f"{prefix}_ROI{i}" for i in range(25, 29)]
-            cols += [f"{prefix}_Min", f"{prefix}_Avg_Left", f"{prefix}_Min_Left"]
+            cols += [f"{prefix}_Avg_Left", f"{prefix}_Min_Left"]
         elif part == "DTC_R":
             cols += [f"{prefix}_ROI{i}" for i in range(21, 25)]
-            cols += [f"{prefix}_Min", f"{prefix}_Avg_Right", f"{prefix}_Min_Right"]
+            cols += [f"{prefix}_Avg_Right", f"{prefix}_Min_Right"]
         else:
             # STC or unknown: check all available
             cols += [f"{prefix}_ROI{i}" for i in range(21, 29)]
-            cols += [f"{prefix}_Min"]
         return cols
     return []
 
@@ -321,11 +320,12 @@ def _get_drop_columns_for_part(mode: str, field: str, part: str) -> list[str]:
         cols = [f"{prefix}_ROI17_Dev", f"{prefix}_ROI19_Dev"]
         if part == "DTC_L":
             cols += [f"{prefix}_ROI{i}_Dev" for i in range(25, 29)]
+            cols.append(f"{prefix}_Min_Left_Dev")
         elif part == "DTC_R":
             cols += [f"{prefix}_ROI{i}_Dev" for i in range(21, 25)]
+            cols.append(f"{prefix}_Min_Right_Dev")
         else:
             cols += [f"{prefix}_ROI{i}_Dev" for i in range(21, 29)]
-        cols.append(f"{prefix}_Min_Dev")
         return cols
     return []
 
