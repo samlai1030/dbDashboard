@@ -566,7 +566,6 @@ def build_part_section(df: pd.DataFrame, part: str) -> str:
     <div class="part-section" id="{part}">
         <h2 style="border-left:5px solid {color}; padding-left:12px;">{part}</h2>
         <div id="summary-online-{part}"></div>
-        <div class="chart-container">{_placeholder(f"chart-daily-yield-online-{part}")}</div>
         <div class="chart-container">{_placeholder(f"chart-bin-yield-online-{part}")}</div>
         {sfr_trend_divs}
         {sfr_box_divs}
@@ -592,7 +591,6 @@ def build_audit_part_section(part: str) -> str:
     <div class="part-subsection">
         <h3 style="border-left:4px solid {color}; padding-left:10px;">{part} — Audit</h3>
         <div id="summary-audit-{part}"></div>
-        <div class="chart-container">{_placeholder(f"chart-daily-yield-audit-{part}")}</div>
         <div class="chart-container">{_placeholder(f"chart-bin-yield-audit-{part}")}</div>
         {sfr_trend_divs}
         {sfr_box_divs}
@@ -1294,9 +1292,6 @@ function renderAllCharts(source, data) {{
 
         /* Summary cards */
         renderSummary(pd, part, source);
-
-        /* Daily yield */
-        renderDailyYield(pd, part, source);
 
         /* Bin yield trend */
         renderBinYieldTrend(pd, part, source);
