@@ -747,6 +747,9 @@ if (typeof Plotly === 'undefined') {{
 
 <!-- ===== COMPARISON ===== -->
 <div id="overview">
+    <h2>Bin Yield Comparison — All Parts</h2>
+    <div class="chart-container">{_placeholder("chart-bin-yield-overlay-online")}</div>
+
     <h2>SFR Comparison by Part — VIS 25cm</h2>
     <div class="chart-container">{_placeholder("chart-sfr-comparison-online")}</div>
 </div>
@@ -1275,6 +1278,10 @@ function renderFailTable(data, part, source) {{
 
 /* ---- Render all JS-driven charts for a data source ---- */
 function renderAllCharts(source, data) {{
+    /* Bin Yield overlay */
+    var binOverlayId = 'chart-bin-yield-overlay-' + source;
+    if (document.getElementById(binOverlayId)) renderBinYieldOverlay(data, binOverlayId);
+
     /* SFR Comparison */
     if (source === 'online') {{
         var el = document.getElementById('chart-sfr-comparison-online');
