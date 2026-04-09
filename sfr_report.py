@@ -608,8 +608,6 @@ def build_audit_section(has_audit: bool) -> str:
     return f"""
     <div class="part-section" id="audit">
         <h2 style="border-left:5px solid #e74c3c; padding-left:12px;">Audit SFR Trend</h2>
-        <div class="chart-container">{_placeholder("chart-yield-overlay-audit")}</div>
-        <div class="chart-container">{_placeholder("chart-bin-yield-overlay-audit")}</div>
         {parts_html}
     </div>"""
 
@@ -749,12 +747,6 @@ if (typeof Plotly === 'undefined') {{
 
 <!-- ===== COMPARISON ===== -->
 <div id="overview">
-    <h2>Yield Comparison — All Parts</h2>
-    <div class="chart-container">{_placeholder("chart-yield-overlay-online")}</div>
-
-    <h2>Bin Yield Comparison — All Parts</h2>
-    <div class="chart-container">{_placeholder("chart-bin-yield-overlay-online")}</div>
-
     <h2>SFR Comparison by Part — VIS 25cm</h2>
     <div class="chart-container">{_placeholder("chart-sfr-comparison-online")}</div>
 </div>
@@ -1283,14 +1275,6 @@ function renderFailTable(data, part, source) {{
 
 /* ---- Render all JS-driven charts for a data source ---- */
 function renderAllCharts(source, data) {{
-    /* Yield overlay */
-    var overlayId = 'chart-yield-overlay-' + source;
-    if (document.getElementById(overlayId)) renderYieldOverlay(data, overlayId);
-
-    /* Bin Yield overlay */
-    var binOverlayId = 'chart-bin-yield-overlay-' + source;
-    if (document.getElementById(binOverlayId)) renderBinYieldOverlay(data, binOverlayId);
-
     /* SFR Comparison */
     if (source === 'online') {{
         var el = document.getElementById('chart-sfr-comparison-online');
