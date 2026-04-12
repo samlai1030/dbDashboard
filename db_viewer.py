@@ -466,7 +466,7 @@ function renderData() {{
                 const fname = val.replace('images/', '');
                 const fileId = IMG_ID_MAP[fname];
                 if (fileId) {{
-                    const thumbUrl = `https://drive.google.com/thumbnail?id=${{fileId}}&sz=w1600`;
+                    const thumbUrl = `https://lh3.googleusercontent.com/d/${{fileId}}=s1600`;
                     html += `<td><a class="img-link" href="${{thumbUrl}}" target="_blank" title="${{fname}}">&#128247;</a></td>`;
                 }} else {{
                     html += `<td title="${{fname}}" style="color:#94a3b8;">&#128247;</td>`;
