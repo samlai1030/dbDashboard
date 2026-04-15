@@ -343,12 +343,17 @@ def main() -> None:
 
 
 def _publish_ghpages(cfg) -> None:
-    """Copy latest HTML reports to gh-pages branch and push to GitHub."""
-    import shutil as _shutil
+    """Publish HTML reports to gh-pages branch via GitHub API.
 
-    repo_dir = PROJECT_DIR
+    Uses the Git Data API (blobs → tree → commit → ref update) to push
+    files directly to the gh-pages branch **without** checking it out.
+    This avoids disk-space issues caused by large files on gh-pages.
+    """
+    import base64
+    import json
+    import re
+
     output = cfg.output_folder
-
     sfr_html = Path(output) / "sfr_report.html"
     dbv_html = Path(output) / "db_viewer.html"
     idx_html = Path(output) / "index.html"
@@ -357,78 +362,113 @@ def _publish_ghpages(cfg) -> None:
         print("  \u26a0 sfr_report.html not found, skipping gh-pages publish")
         return
 
-    # Save current branch
-    result = subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        capture_output=True, text=True, cwd=repo_dir,
-    )
-    original_branch = result.stdout.strip()
+    # --- Detect repo owner/name from git remote -----------------------
+    remote_url = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        capture_output=True, text=True, cwd=PROJECT_DIR,
+    ).stdout.strip()
+    m = re.search(r"github\.com[:/](.+?)(?:\.git)?$", remote_url)
+    if not m:
+        raise RuntimeError(f"Cannot parse GitHub repo from remote: {remote_url}")
+    repo = m.group(1)  # e.g. "samlai1030/dbDashboard"
+    print(f"  Repo: {repo}")
 
-    try:
-        # Switch to gh-pages
-        subprocess.run(
-            ["git", "checkout", "gh-pages"],
-            check=True, capture_output=True, text=True, cwd=repo_dir,
+    def gh_api(endpoint, method="GET", payload=None):
+        """Call GitHub API via `gh api` and return parsed JSON."""
+        cmd = ["gh", "api", f"repos/{repo}/{endpoint}"]
+        if method != "GET":
+            cmd += ["-X", method]
+        stdin_data = None
+        if payload is not None:
+            cmd += ["--input", "-"]
+            stdin_data = json.dumps(payload)
+        result = subprocess.run(
+            cmd, input=stdin_data, capture_output=True, text=True, timeout=180,
         )
-
-        # Copy report files to repo root
-        _shutil.copy2(str(sfr_html), str(repo_dir / "sfr_report.html"))
-        if dbv_html.exists():
-            _shutil.copy2(str(dbv_html), str(repo_dir / "db_viewer.html"))
-        if idx_html.exists():
-            _shutil.copy2(str(idx_html), str(repo_dir / "index.html"))
-
-        # Also copy to config-specific subfolder (e.g. pre_EVT2/)
-        config_subdir = repo_dir / cfg.config_name
-        config_subdir.mkdir(parents=True, exist_ok=True)
-        _shutil.copy2(str(sfr_html), str(config_subdir / "sfr_report.html"))
-        if dbv_html.exists():
-            _shutil.copy2(str(dbv_html), str(config_subdir / "db_viewer.html"))
-
-        # Stage only the HTML files
-        files_to_add = ["sfr_report.html"]
-        if dbv_html.exists():
-            files_to_add.append("db_viewer.html")
-        if idx_html.exists():
-            files_to_add.append("index.html")
-        files_to_add.append(f"{cfg.config_name}/sfr_report.html")
-        if dbv_html.exists():
-            files_to_add.append(f"{cfg.config_name}/db_viewer.html")
-
-        subprocess.run(
-            ["git", "add"] + files_to_add,
-            check=True, capture_output=True, text=True, cwd=repo_dir,
-        )
-
-        # Check if there are changes to commit
-        diff_result = subprocess.run(
-            ["git", "diff", "--cached", "--quiet"],
-            capture_output=True, text=True, cwd=repo_dir,
-        )
-
-        if diff_result.returncode != 0:
-            # There are changes
-            from datetime import datetime
-            today = datetime.now().strftime("%Y-%m-%d")
-            subprocess.run(
-                ["git", "commit", "-m", f"Update reports ({today})"],
-                check=True, capture_output=True, text=True, cwd=repo_dir,
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"GitHub API error ({endpoint}): {result.stderr.strip()}"
             )
-            print("  Pushing to gh-pages ...")
-            subprocess.run(
-                ["git", "push", "origin", "gh-pages"],
-                check=True, capture_output=True, text=True, cwd=repo_dir,
-            )
-            print("  \u2713 GitHub Pages updated")
-        else:
-            print("  No changes to publish")
+        return json.loads(result.stdout) if result.stdout.strip() else {}
 
-    finally:
-        # Always switch back to original branch
-        subprocess.run(
-            ["git", "checkout", original_branch],
-            check=True, capture_output=True, text=True, cwd=repo_dir,
-        )
+    def create_blob(file_path: Path) -> str:
+        """Upload a file as a base64 blob and return its SHA."""
+        content = base64.b64encode(file_path.read_bytes()).decode()
+        data = gh_api("git/blobs", "POST", {
+            "content": content,
+            "encoding": "base64",
+        })
+        return data["sha"]
+
+    # --- 1. Get current gh-pages ref ----------------------------------
+    ref_data = gh_api("git/ref/heads/gh-pages")
+    parent_sha = ref_data["object"]["sha"]
+    print(f"  gh-pages HEAD: {parent_sha[:12]}")
+
+    # Get the tree SHA of the current commit
+    commit_data = gh_api(f"git/commits/{parent_sha}")
+    base_tree_sha = commit_data["tree"]["sha"]
+
+    # --- 2. Create blobs for each file --------------------------------
+    tree_items = []
+    config_name = cfg.config_name  # e.g. "pre_EVT2"
+
+    files_to_publish = []
+    if sfr_html.exists():
+        files_to_publish.append((sfr_html, [
+            "sfr_report.html",
+            f"{config_name}/sfr_report.html",
+        ]))
+    if dbv_html.exists():
+        files_to_publish.append((dbv_html, [
+            "db_viewer.html",
+            f"{config_name}/db_viewer.html",
+        ]))
+    if idx_html.exists():
+        files_to_publish.append((idx_html, [
+            "index.html",
+        ]))
+
+    for local_file, gh_paths in files_to_publish:
+        print(f"  Creating blob for {local_file.name} ({local_file.stat().st_size / 1024 / 1024:.1f} MB) ...")
+        blob_sha = create_blob(local_file)
+        for gh_path in gh_paths:
+            tree_items.append({
+                "path": gh_path,
+                "mode": "100644",
+                "type": "blob",
+                "sha": blob_sha,
+            })
+        print(f"    \u2713 blob {blob_sha[:12]} → {', '.join(gh_paths)}")
+
+    if not tree_items:
+        print("  No files to publish")
+        return
+
+    # --- 3. Create a new tree (overlay on existing base tree) ---------
+    tree_data = gh_api("git/trees", "POST", {
+        "base_tree": base_tree_sha,
+        "tree": tree_items,
+    })
+    new_tree_sha = tree_data["sha"]
+    print(f"  New tree: {new_tree_sha[:12]}")
+
+    # --- 4. Create a new commit ---------------------------------------
+    from datetime import datetime
+    today = datetime.now().strftime("%Y-%m-%d")
+    new_commit = gh_api("git/commits", "POST", {
+        "message": f"Update reports ({today})",
+        "tree": new_tree_sha,
+        "parents": [parent_sha],
+    })
+    new_commit_sha = new_commit["sha"]
+    print(f"  New commit: {new_commit_sha[:12]}")
+
+    # --- 5. Update gh-pages ref to point to the new commit ------------
+    gh_api("git/refs/heads/gh-pages", "PATCH", {
+        "sha": new_commit_sha,
+    })
+    print("  \u2713 GitHub Pages updated successfully")
 
 
 if __name__ == "__main__":
