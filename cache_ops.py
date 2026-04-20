@@ -43,90 +43,78 @@ class CacheOps:
     # ------------------------------------------------------------------
 
     def _list_cache_files(self) -> dict[str, str]:
-        """List files in cache folder, return {name: fileId}."""
+        """List files in cache folder, return {name: fileId}.
+
+        Uses rclone lsjson with --drive-root-folder-id to list files.
+        Note: rclone doesn't return fileId in lsjson, so we return {name: name}
+        and use name-based operations instead of ID-based.
+        """
         if self._file_index is not None:
             return self._file_index
 
         result = subprocess.run(
             [
-                "gws", "drive", "files", "list",
-                "--params", json.dumps({
-                    "q": f'"{self.folder_id}" in parents and trashed = false',
-                    "fields": "files(id,name,mimeType,size)",
-                    "pageSize": 100,
-                }),
+                "rclone", "lsjson",
+                f"{self.remote}:",
+                "--drive-root-folder-id", self.folder_id,
             ],
             capture_output=True, text=True,
         )
-        data = json.loads(result.stdout)
-        files = data.get("files", [])
-        # If duplicates exist, keep the first (newest) one
+        if result.returncode != 0:
+            print(f"  ⚠ rclone lsjson failed: {result.stderr.strip()}")
+            self._file_index = {}
+            return self._file_index
+
+        try:
+            files = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            print(f"  ⚠ Failed to parse rclone output")
+            self._file_index = {}
+            return self._file_index
+
+        # rclone returns Name, Size, ModTime, IsDir, etc.
         index: dict[str, str] = {}
         for f in files:
-            name = f["name"]
-            if name not in index:
-                index[name] = f["id"]
+            if not f.get("IsDir", False):
+                name = f.get("Name", "")
+                if name and name not in index:
+                    index[name] = name  # Use name as identifier
         self._file_index = index
         return index
 
-    def _download_file(self, file_id: str, dest_path: Path) -> None:
-        """Download a file from GDrive by ID using gws."""
+    def _download_file(self, file_name: str, dest_path: Path) -> None:
+        """Download a file from GDrive cache folder using rclone."""
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(
             [
-                "gws", "drive", "files", "get",
-                "--params", json.dumps({
-                    "fileId": file_id,
-                    "alt": "media",
-                }),
-                "--output", str(dest_path),
+                "rclone", "copyto",
+                f"{self.remote}:{file_name}",
+                str(dest_path),
+                "--drive-root-folder-id", self.folder_id,
             ],
             check=True,
         )
 
     def _upload_file(self, local_path: Path, name: str, mime: str) -> str:
-        """Upload or update a file in the cache folder. Returns file ID."""
-        index = self._list_cache_files()
+        """Upload or update a file in the cache folder using rclone. Returns file name."""
+        # rclone copyto will overwrite if exists
+        result = subprocess.run(
+            [
+                "rclone", "copyto",
+                str(local_path),
+                f"{self.remote}:{name}",
+                "--drive-root-folder-id", self.folder_id,
+            ],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            print(f"  ⚠ Upload failed: {result.stderr.strip()}")
+            return ""
 
-        if name in index:
-            # Update existing file
-            file_id = index[name]
-            result = subprocess.run(
-                [
-                    "gws", "drive", "files", "update",
-                    "--params", json.dumps({
-                        "fileId": file_id,
-                        "uploadType": "multipart",
-                    }),
-                    "--upload", str(local_path),
-                    "--upload-content-type", mime,
-                ],
-                capture_output=True, text=True,
-                cwd=local_path.parent,  # gws requires upload path relative to cwd
-            )
-            data = json.loads(result.stdout)
-            return data.get("id", file_id)
-        else:
-            # Create new file
-            result = subprocess.run(
-                [
-                    "gws", "drive", "files", "create",
-                    "--params", json.dumps({"uploadType": "multipart"}),
-                    "--json", json.dumps({
-                        "name": name,
-                        "parents": [self.folder_id],
-                    }),
-                    "--upload", local_path.name,
-                    "--upload-content-type", mime,
-                ],
-                capture_output=True, text=True,
-                cwd=local_path.parent,
-            )
-            data = json.loads(result.stdout)
-            fid = data.get("id", "")
-            # Update index
-            index[name] = fid
-            return fid
+        # Update index
+        if self._file_index is not None:
+            self._file_index[name] = name
+        return name
 
     # ------------------------------------------------------------------
     # Public API

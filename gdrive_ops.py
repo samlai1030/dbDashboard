@@ -135,7 +135,7 @@ def _run_rclone(
     if stream:
         return subprocess.run(cmd, check=True)
 
-    return subprocess.run(cmd, capture_output=True, text=True, check=True)
+    return subprocess.run(cmd, capture_output=True, text=True, check=True, encoding="utf-8", errors="replace")
 
 
 _GDRIVE_URL_RE = re.compile(

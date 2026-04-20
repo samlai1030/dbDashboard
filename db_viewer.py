@@ -95,10 +95,14 @@ def _build_image_id_map_from_gdrive(output_folder: Path) -> dict:
         if page_token:
             params["pageToken"] = page_token
 
-        result = subprocess.run(
-            ["gws", "drive", "files", "list", "--params", json.dumps(params)],
-            capture_output=True, text=True,
-        )
+        try:
+            result = subprocess.run(
+                ["gws", "drive", "files", "list", "--params", json.dumps(params)],
+                capture_output=True, text=True,
+            )
+        except FileNotFoundError:
+            print(f"  ⚠ 'gws' command not found - skipping image mapping")
+            return {}
         if result.returncode != 0:
             print(f"  ⚠ GDrive listing failed: {result.stderr.strip()}")
             break
@@ -606,7 +610,7 @@ def main() -> None:
     html = build_html(db)
 
     out = Path(args.output)
-    out.write_text(html)
+    out.write_text(html, encoding="utf-8")
     print(f"Viewer saved: {out.resolve()}")
     print(f"Open with: open {out}")
 

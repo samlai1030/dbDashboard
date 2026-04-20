@@ -168,8 +168,18 @@ def sync_datasets(
             )
         else:
             if not new_df.empty:
-                _add_missing_columns(conn, new_df.columns.tolist())
-                new_df.to_sql(TABLE_NAME, conn, if_exists="append", index=False)
+                table_cols = _existing_columns(conn)
+                if not table_cols:
+                    # Table doesn't exist yet, create it with all columns from this CSV
+                    new_df.to_sql(TABLE_NAME, conn, if_exists="append", index=False)
+                else:
+                    # Add any new columns and insert
+                    _add_missing_columns(conn, new_df.columns.tolist())
+                    # Re-read table columns after adding missing ones
+                    table_cols = _existing_columns(conn)
+                    # Only insert columns that exist in both DataFrame and table
+                    common_cols = [c for c in new_df.columns if c in table_cols]
+                    new_df[common_cols].to_sql(TABLE_NAME, conn, if_exists="append", index=False)
                 known_tsrids.update(new_df[UNIQUE_KEY].tolist())
 
             conn.execute(
