@@ -46,14 +46,16 @@ SFR_GROUPS = {
         "0.1F": "SFR_VIS_25cm_Ny4_01F_Min",
         "0.3F": "SFR_VIS_25cm_Ny4_03F_Min",
         "0.6F": "SFR_VIS_25cm_Ny4_06F_Min",
-        "0.8F": "SFR_VIS_25cm_Ny4_08F_Min",
+        "0.8F": "SFR_VIS_25cm_Ny4_08F_Min_Left",
+        "0.8F_R": "SFR_VIS_25cm_Ny4_08F_Min_Right",
         "1.0F": "SFR_VIS_25cm_Ny4_010F_Min",
     },
     "IR_25cm": {
         "0.1F": "SFR_IR_25cm_Ny4_01F_Min",
         "0.3F": "SFR_IR_25cm_Ny4_03F_Min",
         "0.6F": "SFR_IR_25cm_Ny4_06F_Min",
-        "0.8F": "SFR_IR_25cm_Ny4_08F_Min",
+        "0.8F": "SFR_IR_25cm_Ny4_08F_Min_Left",
+        "0.8F_R": "SFR_IR_25cm_Ny4_08F_Min_Right",
         "1.0F": "SFR_IR_25cm_Ny4_010F_Min",
     },
 }
