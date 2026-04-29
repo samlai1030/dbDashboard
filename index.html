@@ -17,25 +17,35 @@
         .card p { margin: 0; color: #555; font-size: 0.95em; }
         .card .badge { display: inline-block; background: #e8f4fc; color: #2980b9; font-size: 0.75em; padding: 2px 8px; border-radius: 4px; margin-left: 8px; }
         .card .badge.gtk { background: #fef3e2; color: #e67e22; }
+        .card .badge.gseo { background: #e8fce8; color: #27ae60; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>LOMA DTC SFR Reports</h1>
         <p class="subtitle">Optical Sensor Testing Dashboard</p>
-
         <div class="section">
             <h2>LanSi Pre-EVT2</h2>
-            <a class="card" href="sfr_report.html">
+            <a class="card" href="pre_EVT2/sfr_report.html">
                 <h3>SFR Report <span class="badge">LanSi</span></h3>
                 <p>Daily yield comparison, SFR trends, box plots, and fail analysis for DTC_R, DTC_L, and STC.</p>
             </a>
-            <a class="card" href="db_viewer.html">
+            <a class="card" href="pre_EVT2/db_viewer.html">
                 <h3>Database Viewer <span class="badge">LanSi</span></h3>
                 <p>Browse and search all records in the SFR database with filtering and sorting.</p>
             </a>
         </div>
-
+        <div class="section">
+            <h2>GSEO Pre-EVT2</h2>
+            <a class="card" href="GSEO_pre_EVT2/sfr_report.html">
+                <h3>SFR Report <span class="badge gseo">GSEO</span></h3>
+                <p>GSEO CW vendor SFR test data - yield analysis, SFR performance, and fail trends for DTC_R and DTC_L.</p>
+            </a>
+            <a class="card" href="GSEO_pre_EVT2/db_viewer.html">
+                <h3>Database Viewer <span class="badge gseo">GSEO</span></h3>
+                <p>Browse GSEO SFR test records with filtering and sorting.</p>
+            </a>
+        </div>
         <div class="section">
             <h2>GTK Pre-EVT2 IQC</h2>
             <a class="card" href="GTK_pre-EVT2_IQC/sfr_report.html">
