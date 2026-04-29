@@ -29,7 +29,7 @@ DB_PATH = cfg.db_file
 TABLE_NAME = "sfr_data"
 LOG_TABLE = "_import_log"
 DATA_EXTENSIONS = cfg.data_extensions
-SKIP_PREFIXES = ("Lower Limit", "Upper Limit", "Unit")
+SKIP_PREFIXES = ("Lower Limit", "Upper Limit", "Unit", "LowLimit", "HighLimit", "TestTime")
 UNIQUE_KEY = "TSRID"
 
 
@@ -46,6 +46,21 @@ def _read_file(filepath: Path) -> pd.DataFrame:
         lambda v: isinstance(v, str) and v.startswith(SKIP_PREFIXES)
     )
     df = df[~mask].reset_index(drop=True)
+
+    # Handle case-insensitive duplicate column names (SQLite is case-insensitive)
+    seen: dict[str, int] = {}
+    new_cols = []
+    for col in df.columns:
+        key = col.lower()
+        if key in seen:
+            seen[key] += 1
+            new_col = f"{col}_{seen[key]}"
+            new_cols.append(new_col)
+        else:
+            seen[key] = 0
+            new_cols.append(col)
+    df.columns = new_cols
+
     return df
 
 

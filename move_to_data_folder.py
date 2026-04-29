@@ -3,6 +3,7 @@ move_to_data_folder.py — Scan sync_folder and extract/copy data files to data_
 
 Rules:
     .zip          → unzip into data_folder (preserving subfolder structure)
+    .rar          → unrar into data_folder (preserving subfolder structure)
     .csv/.xls/.xlsx → copy to data_folder  (preserving subfolder structure)
 
 Usage:
@@ -16,6 +17,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -62,6 +64,33 @@ def scan_and_move(src: Path, dst: Path, *, dry_run: bool = False) -> None:
                     print(f"  ✓ UNZIP  {rel}  →  {unzip_target.relative_to(dst)}/")
                 except Exception as e:
                     print(f"  ✗ UNZIP FAILED  {rel}  ({e})")
+                    errors += 1
+                    continue
+            unzipped += 1
+
+        # --- RAR ---
+        elif ext == ".rar":
+            unrar_target = dest_dir / filepath.stem
+
+            # Skip if already extracted and rar hasn't been updated since
+            if unrar_target.exists() and unrar_target.stat().st_mtime >= filepath.stat().st_mtime:
+                skipped += 1
+                continue
+
+            if dry_run:
+                print(f"  [DRY] UNRAR  {rel}  \u2192  {unrar_target.relative_to(dst)}/")
+            else:
+                unrar_target.mkdir(parents=True, exist_ok=True)
+                try:
+                    result = subprocess.run(
+                        ["unrar", "x", "-o+", "-y", str(filepath), str(unrar_target) + "/"],
+                        capture_output=True, text=True, timeout=300,
+                    )
+                    if result.returncode != 0:
+                        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+                    print(f"  \u2713 UNRAR  {rel}  \u2192  {unrar_target.relative_to(dst)}/")
+                except Exception as e:
+                    print(f"  \u2717 UNRAR FAILED  {rel}  ({e})")
                     errors += 1
                     continue
             unzipped += 1

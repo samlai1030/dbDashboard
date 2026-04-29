@@ -1,0 +1,23 @@
+{
+  "gdrive": {
+    "remote": "manus_google_drive",
+    "folder_url": "https://drive.google.com/drive/folders/1SQar_mTmaRB5EfVpfp1qQcEiLZLu3U5g",
+    "images_folder_id": "1MndHL4MHkHyyZf3sJU5YJL1a81s6m0Er"
+  },
+  "cache": {
+    "remote": "manus_google_drive",
+    "folder_id": "1OpnwdZhCcwHU8AjJFp-PBgr62xyo_BKl"
+  },
+  "output_folder": "./output_GTK_pre_EVT2",
+  "filters": {
+    "dataset_keyword": [
+      "Goertek_Loma_1_DTC-SFR"
+    ],
+    "audit_keyword": [],
+    "data_extensions": [".csv"]
+  },
+  "slot_map": {
+    "1": "DTC_R",
+    "2": "DTC_L"
+  }
+}

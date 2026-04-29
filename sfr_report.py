@@ -466,6 +466,16 @@ def load_data(
     cur = conn.execute(f'PRAGMA table_info("{table}")')
     db_columns = {row[1] for row in cur.fetchall()}
 
+    # Column alias mapping: canonical_name -> list of alternative names
+    _COL_ALIASES = {
+        "SerialNumber": ["serial_number"],
+        "CM":           ["cm"],
+        "TestResult":   ["test_result"],
+        "Time":         ["start_time"],
+        "Product_Name": ["product_name"],
+        "Bin":          ["Bin"],
+    }
+
     meta_cols = [
         "SerialNumber",
         "CM",
@@ -477,8 +487,23 @@ def load_data(
         "Product_Name",
         "TestFailItem",
         "SlotID",
+        "Bin",
     ]
-    select_cols = [c for c in meta_cols if c in db_columns] + sorted(
+
+    # Resolve aliases: pick the actual DB column name for each meta col
+    rename_map: dict[str, str] = {}  # actual_db_col -> canonical_name
+    resolved_meta = []
+    for mc in meta_cols:
+        if mc in db_columns:
+            resolved_meta.append(mc)
+        else:
+            for alias in _COL_ALIASES.get(mc, []):
+                if alias in db_columns:
+                    resolved_meta.append(alias)
+                    rename_map[alias] = mc
+                    break
+
+    select_cols = resolved_meta + sorted(
         c for c in all_sfr_cols if c in db_columns
     )
     cols_str = ", ".join(f'"{c}"' for c in select_cols)
@@ -486,11 +511,18 @@ def load_data(
     df = pd.read_sql_query(f'SELECT {cols_str} FROM "{table}"', conn)
     conn.close()
 
+    # Rename aliased columns to canonical names
+    if rename_map:
+        df.rename(columns=rename_map, inplace=True)
+
     if df.empty:
         return df
 
-    df["Time"] = pd.to_datetime(df["Time"], errors="coerce")
-    df["Date"] = df["Time"].dt.date
+    if "Time" in df.columns:
+        df["Time"] = pd.to_datetime(df["Time"], errors="coerce")
+        df["Date"] = df["Time"].dt.date
+    else:
+        df["Date"] = None
     df["Part"] = df["SlotID"].astype(str).map(SLOT_MAP).fillna("Unknown")
 
     for col in all_sfr_cols:
