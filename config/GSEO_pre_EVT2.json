@@ -1,0 +1,27 @@
+{
+  "gdrive": {
+    "remote": "manus_google_drive",
+    "folder_url": "https://drive.google.com/drive/folders/1HQ8yua-KZSRIcLvAAkhyKs5KUxtHkecL",
+    "images_folder_id": "1TLLk7UoBbAESLjDoN079c-tClicCGji1"
+  },
+  "cache": {
+    "remote": "manus_google_drive",
+    "folder_id": "1DmRVdT1D9pvZrHwNLSryraeseCHT2zQY"
+  },
+  "output_folder": "./output_GSEO_pre_EVT2",
+  "filters": {
+    "dataset_keyword": [
+      "Summary_GSEO_Loma_CW_DTC_DTC-L_1_01_OFFLINE",
+      "Summary_GSEO_Loma_CW_DTC_DTC-R_1_01_OFFLINE"
+    ],
+    "audit_keyword": [
+      "Summary_GSEO_Loma_CW_DTC_DTC-L_1_01_AuditTest_AUDIT_",
+      "Summary_GSEO_Loma_CW_DTC_DTC-R_1_01_AuditTest_AUDIT_"
+    ],
+    "data_extensions": [".csv", ".xls", ".xlsx"]
+  },
+  "slot_map": {
+    "1": "DTC_R",
+    "2": "DTC_L"
+  }
+}
