@@ -1,0 +1,35 @@
+{
+  "dashboard": {
+    "title": "LENS EVT2 Production SFR Dashboard",
+    "label": "LENS EVT2"
+  },
+  "gdrive": {
+    "remote": "samlai@meta.com",
+    "folder_url": "https://drive.google.com/drive/folders/1YO-NPmliEIowD2R7SO-TxMowtNFeDxdU"
+  },
+  "output_folder": "./output_LENS_EVT2",
+  "filters": {
+    "dataset_keyword": [
+      "Summary_LanSi_Loma_CW_DTC-L_1_01_ONLINE",
+      "Summary_LanSi_Loma_CW_DTC-R_1_01_ONLINE"
+    ],
+    "audit_keyword": [],
+    "data_extensions": [".csv", ".xls", ".xlsx"],
+    "archive_extensions": [".zip", ".rar"],
+    "sync_extensions": [".csv", ".xls", ".xlsx", ".zip", ".rar"],
+    "exclude_path_keywords": [
+      "DoE/",
+      "Cavity Qual",
+      "点检",
+      "IQC",
+      "calibration",
+      "check",
+      "retest",
+      "重测"
+    ]
+  },
+  "slot_map": {
+    "1": "DTC_R",
+    "2": "DTC_L"
+  }
+}

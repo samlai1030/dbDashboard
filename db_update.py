@@ -31,13 +31,33 @@ LOG_TABLE = "_import_log"
 DATA_EXTENSIONS = cfg.data_extensions
 SKIP_PREFIXES = ("Lower Limit", "Upper Limit", "Unit", "LowLimit", "HighLimit", "TestTime")
 UNIQUE_KEY = "TSRID"
+CSV_ENCODINGS = ("utf-8-sig", "gb18030", "cp1252")
+
+
+def _source_part(filepath: Path) -> str | None:
+    name = filepath.name.upper()
+    if "DTC-L" in name or "DTC_L" in name:
+        return "DTC_L"
+    if "DTC-R" in name or "DTC_R" in name:
+        return "DTC_R"
+    return None
 
 
 def _read_file(filepath: Path) -> pd.DataFrame:
     """Read a CSV/XLS/XLSX, dropping metadata rows."""
     ext = filepath.suffix.lower()
     if ext == ".csv":
-        df = pd.read_csv(filepath, dtype=str)
+        last_error = None
+        for encoding in CSV_ENCODINGS:
+            try:
+                df = pd.read_csv(filepath, dtype=str, encoding=encoding)
+                break
+            except UnicodeDecodeError as error:
+                last_error = error
+        else:
+            raise last_error or UnicodeDecodeError(
+                "utf-8", b"", 0, 1, "unable to decode CSV"
+            )
     else:
         df = pd.read_excel(filepath, dtype=str)
 
@@ -60,6 +80,10 @@ def _read_file(filepath: Path) -> pd.DataFrame:
             seen[key] = 0
             new_cols.append(col)
     df.columns = new_cols
+
+    source_part = _source_part(filepath)
+    if source_part:
+        df["SourcePart"] = source_part
 
     return df
 

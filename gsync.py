@@ -44,6 +44,7 @@ from typing import Dict, List, Optional
 
 from gdrive_ops import _run_rclone, GDrive
 from app_config import cfg as app_cfg
+from dataset_selection import is_excluded_path
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -106,12 +107,30 @@ def _rclone_remote_src(
     return f"{remote}:{gdrive_path}", []
 
 
+def _is_selected_remote_path(path: str) -> bool:
+    if is_excluded_path(path, app_cfg.excluded_path_keywords):
+        return False
+    return Path(path).suffix.lower() in app_cfg.sync_extensions
+
+
+def _rclone_filter_args() -> list[str]:
+    filters: list[str] = []
+    for keyword in app_cfg.excluded_path_keywords:
+        filters += ["--filter", f"- **{keyword}**"]
+        filters += ["--filter", f"- **{keyword}/**"]
+    for extension in sorted(app_cfg.sync_extensions):
+        filters += ["--filter", f"+ **{extension}"]
+    filters += ["--filter", "- **"]
+    return filters
+
+
 def _list_remote_files(
     remote: str, folder_id: str | None, gdrive_path: str
 ) -> List[RemoteFile]:
-    """Get a flat list of all files on the remote side."""
+    """Get a flat list of selected files on the remote side."""
     src, extra = _rclone_remote_src(remote, folder_id, gdrive_path)
     args = ["lsjson", src, "--recursive", "--files-only"]
+    args += _rclone_filter_args()
     result = _run_rclone(args, extra_flags=extra or None)
     items = json.loads(result.stdout)
     return [
@@ -121,11 +140,12 @@ def _list_remote_files(
             mod_time=item.get("ModTime", ""),
         )
         for item in items
+        if _is_selected_remote_path(item.get("Path", ""))
     ]
 
 
 def _scan_local_files(local_path: str) -> Dict[str, int]:
-    """Return {relative_path: file_size} for every file under local_path."""
+    """Return selected relative paths and sizes under local_path."""
     local = {}
     root = Path(local_path)
     if not root.exists():
@@ -133,7 +153,8 @@ def _scan_local_files(local_path: str) -> Dict[str, int]:
     for f in root.rglob("*"):
         if f.is_file():
             rel = str(f.relative_to(root))
-            local[rel] = f.stat().st_size
+            if _is_selected_remote_path(rel):
+                local[rel] = f.stat().st_size
     return local
 
 
@@ -257,10 +278,11 @@ def do_check(
     folder_id: str | None,
     gdrive_path: str,
     local_path: str,
-    profile: str = "default",
+    profile: str | None = None,
     use_cache: bool = False,
 ) -> CheckResult:
     """Compare GDrive file list vs local files."""
+    profile = profile or app_cfg.config_name
     remote_files = None
 
     if use_cache:
@@ -299,7 +321,7 @@ def do_copy(
     print(f"  Dest   : {os.path.abspath(local_path)}\n")
 
     _run_rclone(
-        ["copy", src, local_path],
+        ["copy", src, local_path] + _rclone_filter_args(),
         stream=progress,
         dry_run=dry_run,
         progress=progress,
@@ -386,7 +408,7 @@ def main() -> None:
             args.local or input("Local folder path (e.g. ./sync_folder): ").strip()
         )
         remote_name = args.remote
-        profile_name = "default"
+        profile_name = app_cfg.config_name
 
     if not gdrive_raw:
         sys.exit("Error: Google Drive path cannot be empty.")

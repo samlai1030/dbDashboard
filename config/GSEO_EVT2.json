@@ -1,0 +1,35 @@
+{
+  "dashboard": {
+    "title": "GSEO EVT2 Production SFR Dashboard",
+    "label": "GSEO EVT2"
+  },
+  "gdrive": {
+    "remote": "samlai@meta.com",
+    "folder_url": "https://drive.google.com/drive/folders/1F7NIX-5QDf_mnRUoRBw6lLlhUHK_ZNQ9"
+  },
+  "output_folder": "./output_GSEO_EVT2",
+  "filters": {
+    "dataset_keyword": [
+      "Summary_GSEO_Loma_CW_DTC_DTC-L_1_01_ONLINE",
+      "Summary_GSEO_Loma_CW_DTC_DTC-R_1_01_ONLINE"
+    ],
+    "audit_keyword": [],
+    "data_extensions": [".csv", ".xls", ".xlsx"],
+    "archive_extensions": [".zip", ".rar"],
+    "sync_extensions": [".csv", ".xls", ".xlsx", ".zip", ".rar"],
+    "exclude_path_keywords": [
+      "DoE/",
+      "Cavity Qual",
+      "点检",
+      "IQC",
+      "calibration",
+      "check",
+      "retest",
+      "重测"
+    ]
+  },
+  "slot_map": {
+    "1": "DTC_R",
+    "2": "DTC_L"
+  }
+}

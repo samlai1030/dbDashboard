@@ -488,6 +488,7 @@ def load_data(
         "TestFailItem",
         "SlotID",
         "Bin",
+        "SourcePart",
     ]
 
     # Resolve aliases: pick the actual DB column name for each meta col
@@ -523,7 +524,12 @@ def load_data(
         df["Date"] = df["Time"].dt.date
     else:
         df["Date"] = None
-    df["Part"] = df["SlotID"].astype(str).map(SLOT_MAP).fillna("Unknown")
+    slot_part = df["SlotID"].astype(str).map(SLOT_MAP)
+    if "SourcePart" in df.columns:
+        source_part = df["SourcePart"].replace("", np.nan)
+        df["Part"] = source_part.fillna(slot_part).fillna("Unknown")
+    else:
+        df["Part"] = slot_part.fillna("Unknown")
 
     for col in all_sfr_cols:
         if col in df.columns:
@@ -708,7 +714,7 @@ def build_report(
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>SFR Report — Loma CW_1_01</title>
+<title>{cfg.dashboard_title}</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/3.1.1/plotly.min.js"></script>
 <script>
 if (typeof Plotly === 'undefined') {{
@@ -759,7 +765,7 @@ if (typeof Plotly === 'undefined') {{
 </head>
 <body>
 
-<h1>SFR Report — Loma CW_1_01 ONLINE</h1>
+<h1>{cfg.dashboard_title}</h1>
 <div class="nav">
     <span style="color:#7f8c8d;font-size:0.9em;">Jump to:</span>
     <a href="#overview" class="nav-link" style="border-color:#2c3e50">Comparison</a>

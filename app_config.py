@@ -114,6 +114,17 @@ class AppConfig:
     def output_folder(self) -> Path:
         return self._output
 
+    # --- Dashboard metadata ---
+    @property
+    def dashboard_title(self) -> str:
+        dashboard = self._data.get("dashboard", {})
+        return dashboard.get("title", "SFR Report — Loma CW_1_01")
+
+    @property
+    def dashboard_label(self) -> str:
+        dashboard = self._data.get("dashboard", {})
+        return dashboard.get("label", self.config_name)
+
     # --- GDrive ---
     @property
     def gdrive_remote(self) -> str:
@@ -122,6 +133,10 @@ class AppConfig:
     @property
     def gdrive_url(self) -> str:
         return self._data["gdrive"]["folder_url"]
+
+    @property
+    def gdrive_images_folder_id(self) -> str | None:
+        return self._data["gdrive"].get("images_folder_id")
 
     # --- Cache (persistent GDrive storage for DB/datasets/reports) ---
     @property
@@ -190,17 +205,32 @@ class AppConfig:
     @property
     def audit_keyword(self) -> str | list[str]:
         """Return keyword(s) for matching audit dataset files. May be a string or list."""
-        return self._data["filters"]["audit_keyword"]
+        return self._data["filters"].get("audit_keyword", [])
 
     @property
     def audit_keywords(self) -> list[str]:
         """Always return a list of keywords for matching audit dataset files."""
-        kw = self._data["filters"]["audit_keyword"]
+        kw = self._data["filters"].get("audit_keyword", [])
         return kw if isinstance(kw, list) else [kw]
 
     @property
     def data_extensions(self) -> set[str]:
         return set(self._data["filters"]["data_extensions"])
+
+    @property
+    def archive_extensions(self) -> set[str]:
+        return set(self._data["filters"].get("archive_extensions", [".zip", ".rar"]))
+
+    @property
+    def excluded_path_keywords(self) -> list[str]:
+        return list(self._data["filters"].get("exclude_path_keywords", []))
+
+    @property
+    def sync_extensions(self) -> set[str]:
+        configured = self._data["filters"].get("sync_extensions")
+        if configured:
+            return set(configured)
+        return self.data_extensions | self.archive_extensions
 
     # --- Slot map ---
     @property
@@ -221,6 +251,7 @@ class AppConfig:
     def summary(self) -> str:
         return (
             f"Config: {self._path.name}\n"
+            f"  Dashboard     : {self.dashboard_title}\n"
             f"  Output folder : {self._output}\n"
             f"  GDrive remote : {self.gdrive_remote}\n"
             f"  GDrive URL    : {self.gdrive_url}\n"
@@ -236,6 +267,7 @@ class AppConfig:
             f"  viewer_file   : {self.viewer_file}\n"
             f"  keyword       : {self.dataset_keyword}\n"
             f"  audit_keyword : {self.audit_keyword}\n"
+            f"  exclusions    : {self.excluded_path_keywords}\n"
             f"  extensions    : {self.data_extensions}\n"
             f"  slot_map      : {self.slot_map}"
         )
